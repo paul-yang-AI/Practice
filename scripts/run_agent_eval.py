@@ -1,80 +1,65 @@
-"""Run agent eval tasks with real Playwright and report results."""
+"""Run agent eval tasks with real Playwright + LLM and merge into reports CSV."""
+
 from __future__ import annotations
 
-import os
+import json
 import sys
-import time
-import yaml
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-os.environ.setdefault("SEC_USER_AGENT", "WhaleforceCodingTest Paul bravo336629@gmail.com")
-os.environ.setdefault("DATABASE_URL", "sqlite:///agent_eval.db")
+from shared_harness.env import load_env
+from shared_harness.eval_runner import (
+    run_agent_eval,
+    run_sec_eval,
+    summarize_eval,
+    write_eval_csv,
+)
 
-from shared_harness import job_store
-from task1_agent.agent.browser import PlaywrightExecutor
-from task1_agent.agent.loop import run as agent_run
 
-TASKS_FILE = Path(__file__).resolve().parent.parent / "task1_agent" / "eval" / "tasks.yaml"
+def main() -> None:
+    load_env()
+    print("Running agent train eval (Playwright + LLM)...\n")
+    agent_results = run_agent_eval(split="train")
 
+    for r in agent_results:
+        icon = "OK" if r.status == "success" else "FAIL"
+        print(
+            f"  [{icon}] {r.task_id:30s} {r.status:10s} {r.elapsed_s:.1f}s  "
+            f"steps={r.steps} llm={r.llm_calls} usd=${r.usd_per_task:.4f}  "
+            f"recovery={r.recovery_count} silent={r.silent_failure}"
+        )
+        if r.extracted_result:
+            preview = r.extracted_result[:120].replace("\n", " ")
+            print(f"       result: {preview}")
+        if r.error:
+            print(f"       error: {r.error}")
 
-def main():
-    with open(TASKS_FILE, encoding="utf-8") as f:
-        manifest = yaml.safe_load(f)
+    sec_results = run_sec_eval(split="train", use_arbiter=False)
+    combined = [*sec_results, *agent_results]
+    reports = _ROOT / "reports"
+    csv_path = write_eval_csv(combined, reports / "eval_train.csv")
+    write_eval_csv(combined, reports / "latest.csv")
 
-    tasks = [t for t in manifest["tasks"] if t.get("split", "train") == "train"]
-    print(f"Running {len(tasks)} train tasks...\n")
+    summary = summarize_eval(combined)
+    summary_path = reports / "eval_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    results = []
-    executor = PlaywrightExecutor(headless=True, timeout_ms=20000)
-    executor.start()
-
-    try:
-        for task in tasks:
-            task_id = task["id"]
-            desc = task["description"]
-            start_url = task.get("start_url", "https://example.com")
-
-            run_id = job_store.create_run("agent")
-            t0 = time.perf_counter()
-            result = agent_run(
-                task_description=desc,
-                start_url=start_url,
-                run_id=run_id,
-                execute_action=executor,
-            )
-            elapsed = time.perf_counter() - t0
-
-            results.append({
-                "task_id": task_id,
-                "domain": task.get("domain", ""),
-                "task_type": task.get("task_type", ""),
-                "status": result.status,
-                "steps": len(result.steps),
-                "final_url": result.final_url,
-                "elapsed_s": round(elapsed, 2),
-                "error": result.error,
-            })
-            status_icon = "OK" if result.status == "success" else "FAIL"
-            print(f"  [{status_icon}] {task_id:30s} {result.status:10s} {elapsed:.1f}s  steps={len(result.steps)}  url={result.final_url}")
-    finally:
-        executor.close()
-
-    print(f"\n{'='*70}")
-    successes = sum(1 for r in results if r["status"] == "success")
-    print(f"Results: {successes}/{len(results)} success")
-    print(f"Total time: {sum(r['elapsed_s'] for r in results):.1f}s")
-    print(f"Avg time/task: {sum(r['elapsed_s'] for r in results)/len(results):.1f}s")
-
-    recovery_count = sum(r["steps"] - 1 for r in results if r["steps"] > 1)
-    print(f"Recovery steps: {recovery_count}")
-    silent_failures = sum(1 for r in results if r["status"] == "success" and "wrong" in (r.get("error") or "").lower())
-    print(f"Silent failures: {silent_failures}")
-
-    for r in results:
-        if r["status"] != "success":
-            print(f"  FAIL: {r['task_id']} — {r['error']}")
+    print(f"\n{'=' * 70}")
+    successes = int(summary.get("agent_tasks", 0) * summary.get("agent_success_rate", 0))
+    print(
+        f"Agent: {summary.get('agent_success_rate', 0):.0%} success "
+        f"({successes}/{summary.get('agent_tasks', 0)})"
+    )
+    print(f"Silent failures: {summary.get('agent_silent_failures', 0)}")
+    print(f"P50 latency: {summary.get('agent_latency_p50', 0):.1f}s")
+    print(f"P95 latency: {summary.get('agent_latency_p95', 0):.1f}s")
+    print(f"P50 cost: ${summary.get('agent_usd_p50', 0):.4f}")
+    print(f"SEC filings ok: {summary.get('sec_ok', 0)}/{summary.get('sec_filings', 0)}")
+    print(f"Wrote {csv_path}")
+    print(f"Wrote {summary_path}")
 
 
 if __name__ == "__main__":

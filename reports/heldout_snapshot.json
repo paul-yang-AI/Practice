@@ -1,0 +1,13 @@
+[
+  {
+    "accession": "0000950170-25-025210",
+    "ticker": "BRK.B",
+    "split": "heldout",
+    "required_items_found": 4,
+    "required_items_total": 4,
+    "tier0_extracted_count": 21,
+    "incorporated_count": 0,
+    "missing_count": 1,
+    "failure_category": "ok"
+  }
+]

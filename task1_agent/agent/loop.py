@@ -293,15 +293,15 @@ def _execute_planned_step(
     )
 
     if plan is None:
-        # LLM unavailable — treat as task completion with current state
         return StepResult(
             step_index=step_index,
-            action="task_complete",
+            action="plan_failed",
             url=prev_url,
             page_text=prev_text,
             a11y_tree=prev_tree,
-            verify=VerifyResult(passed=True),
-            extracted_result="(LLM planner unavailable — task ended with current page state)",
+            verify=VerifyResult(passed=False, reason="LLM planner unavailable"),
+            failure_type=FailureType.ACTION_NO_EFFECT,
+            error="LLM planner unavailable after primary and fallback",
         )
 
     if plan.get("done"):

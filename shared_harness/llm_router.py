@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import litellm
@@ -25,6 +26,12 @@ _INFRA_ERRORS: tuple[type[BaseException], ...] = (
 
 class AllProvidersFailed(Exception):
     """All LLM providers failed for this call."""
+
+
+def _fallback_available(model: str) -> bool:
+    if model.startswith("openrouter/") and not os.environ.get("OPENROUTER_API_KEY"):
+        return False
+    return True
 
 
 def _provider_from_model(model: str) -> str:
@@ -147,8 +154,8 @@ def complete(
     except Exception as exc:
         raise AllProvidersFailed(str(exc)) from exc
 
-    if not llm_config.fallback_enabled():
-        raise AllProvidersFailed("Primary failed and fallback disabled")
+    if not llm_config.fallback_enabled() or not _fallback_available(cfg.fallback):
+        raise AllProvidersFailed("Primary failed and fallback disabled or unavailable")
 
     try:
         return _attempt(

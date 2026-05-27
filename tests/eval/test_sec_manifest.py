@@ -68,16 +68,18 @@ def test_sec_manifest_citi_incorporation() -> None:
 
 @pytest.mark.eval
 def test_run_eval_csv_at_least_three_rows(tmp_path: Path) -> None:
+    import csv
+
     from shared_harness.eval_runner import run_eval
 
     csv_path = Path(run_eval(split="train", output_dir=str(tmp_path)))
-    lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) >= 4  # header + 3 train filings
+    with csv_path.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
 
-    header = lines[0].split(",")
-    assert "failure_category" in header
-    assert "required_items_found" in header
+    sec_rows = [r for r in rows if r["task"] == "sec_10k"]
+    assert len(sec_rows) >= 3
+    assert "failure_category" in rows[0]
+    assert "required_items_found" in rows[0]
 
-    for line in lines[1:]:
-        row = dict(zip(header, line.split(",")))
+    for row in sec_rows:
         assert row["failure_category"] == "ok"

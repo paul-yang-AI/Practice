@@ -1,0 +1,14 @@
+{
+  "sec_filings": 3,
+  "sec_ok": 3,
+  "sec_tier0_pct": 100.0,
+  "sec_usd_p50": 0.0,
+  "agent_tasks": 6,
+  "agent_success_rate": 0.5,
+  "agent_silent_failures": 0,
+  "agent_recovery_total": 25,
+  "agent_llm_calls_total": 19,
+  "agent_latency_p50": 27.0,
+  "agent_latency_p95": 57.7,
+  "agent_usd_p50": 0.0059
+}

@@ -50,22 +50,27 @@ Local secrets live in **`.env`** at repo root (gitignored). `shared_harness/env.
 
 Zeabur: single Docker service, Streamlit multi-page.
 
-**Base URL** (fill after deploy): `https://<your-app>.zeabur.app`
+**Base URL**: https://whaleforce-coding-test.zeabur.app
 
 | Page | Task | URL Path |
 |------|------|----------|
 | Home | Overview | `/` |
 | **SEC 10K** | Task 2 — 10-K extraction | Sidebar → SEC 10K |
 | **Browser Agent** | Task 1 — browser automation | Sidebar → Browser Agent |
-| **Eval** | Dashboard (CSV) | Sidebar → Eval |
+| **Eval** | Dashboard (CSV + summary) | Sidebar → Eval |
 
-**Private Git → Public before submit**: push to a private GitHub repo during development; change repo visibility to **Public** when emailing Whaleforce. See [SUBMISSION.md](SUBMISSION.md).
+**Git repo**: https://github.com/paul-yang-AI/whaleforce-coding-test (change to **Public** before emailing Whaleforce — see [SUBMISSION.md](SUBMISSION.md)).
 
-Environment variables required for demo:
-- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) — Gemini primary
-- `OPENROUTER_API_KEY` — fallback (optional; primary-only still works)
-- `SEC_USER_AGENT` — `"CompanyName Contact email@domain.com"`
-- `RUN_BUDGET_USD` — default `20`
+Environment variables for demo:
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `GEMINI_API_KEY` | Yes | Tier1/Tier2 primary |
+| `SEC_USER_AGENT` | Yes | `"CompanyName Contact email@domain.com"` |
+| `OPENROUTER_API_KEY` | Recommended | Fallback when Gemini parse fails; skipped automatically if unset |
+| `RUN_BUDGET_USD` | No | Default `20` |
+| `ENABLE_BLIND_CRITIC` | No | Default `false`; set `true` for terminal Tier1 gate (extra cost) |
+| `LLM_FALLBACK_ENABLED` | No | Default `true`; requires `OPENROUTER_API_KEY` to actually call fallback |
 
 ## How AI Was Used
 
@@ -100,7 +105,7 @@ See [prompts/ITERATION.md](prompts/ITERATION.md) for Failed Path → Resolution 
 | 1 | `gemini/gemini-3-flash-preview` | `openrouter/deepseek/deepseek-v4-pro` | plan, recovery, Blind Critic |
 | 2 | `gemini/gemini-3.1-pro-preview` | `openrouter/qwen/qwen3.5-397b-a17b` | SEC boundary arbiter |
 
-Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetExceeded` → zero API.
+Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped automatically if `OPENROUTER_API_KEY` is unset. `BudgetExceeded` → zero API.
 
 ## Task 1: Browser Agent
 
@@ -110,29 +115,28 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetE
 - **Recovery**: classified by `FailureType` → strategy table (no blind retry)
 - **Verify**: L0 heuristic per step + optional Blind Critic terminal gate (`ENABLE_BLIND_CRITIC=true`)
 - **Cancel**: `cancel_event` checked at each step boundary; UI Stop button
-- **Eval**: 8 tasks, 6 domains, 4 task_types (`tasks.yaml`); `silent_failure == 0`
+- **Eval**: 8 tasks, 6 domains, 4 task_types (`tasks.yaml`); latest train CSV: **3/6 success, silent_failure=0**
 
-### Supported Sites & Operations
+### Supported Sites & Operations (from `reports/eval_train.csv`)
 
 | Domain | Task Type | Status | Notes |
 |--------|-----------|--------|-------|
-| example.com | navigate | **Pass** | Title verification, baseline smoke |
-| httpbin.org | extract | **Pass** | JSON response extraction (headers, forms) |
-| news.ycombinator.com | extract | **Pass** | Top story title extraction via LLM planning |
-| duckduckgo.com | search | **Pass** | Multi-step: type query → press Enter → verify results |
-| wikipedia.org | search | **Pass** | Multi-step: type in search box → submit → verify article |
-| github.com | navigate | **Pass** | LLM-planned navigation to target repository |
-| sec.gov | navigate | Heldout | EDGAR filing search (not tuned) |
-| httpbin.org/forms | form | Heldout | POST form submission (not tuned) |
+| example.com | navigate | **Pass** | Title verification; 2 steps |
+| news.ycombinator.com | extract | **Pass** | Top story title extracted |
+| github.com | navigate | **Pass** | LLM-planned navigation to `/python/cpython` |
+| httpbin.org | extract | **Flaky** | May hit `max_steps` when LLM budget exhausted mid-run |
+| wikipedia.org | search | **Flaky** | Multi-step search; often `max_steps` without OpenRouter fallback |
+| duckduckgo.com | search | **Flaky** | Same as Wikipedia — search box + submit + verify |
+| sec.gov | navigate | Heldout | EDGAR search (not in train eval) |
+| httpbin.org/forms | form | Heldout | POST form (not tuned) |
 
 ### Known Limitations & Failure Cases
 
 - **Login / CAPTCHA**: Agent reports `blocked` immediately; no bypass attempted
-- **Complex multi-step forms**: Multi-field forms with dropdowns/checkboxes may be unreliable
-- **Dynamic SPAs (React/Vue)**: DOM may not stabilize within timeout; mitigation: `extend_wait` recovery strategy
-- **Tab-close**: Streamlit cannot detect browser tab close; use Stop button for guaranteed cancel
-- **Geo-restricted sites**: Behavior depends on server location (Zeabur region)
-- **Heavy JavaScript**: Sites that require extensive client-side rendering may timeout on initial load
+- **Multi-step search**: Wikipedia/DuckDuckGo may exhaust `max_steps=10` or `max_llm_calls=5`; mitigations: `OPENROUTER_API_KEY`, simpler presets (example.com, HN)
+- **Blind Critic off by default**: Zeabur uses L0 verify only; enable `ENABLE_BLIND_CRITIC=true` for stricter terminal gate (L2 tested)
+- **Dynamic SPAs**: DOM may not stabilize within timeout; `extend_wait` recovery
+- **Tab-close**: Use Stop button; tab close does not guarantee cancel
 
 ## Task 2: SEC 10-K
 
@@ -150,9 +154,9 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetE
 
 | Ticker | Accession | Difficulty | Behavior |
 |--------|-----------|-----------|----------|
-| **INTC** | `0000050863-25-000009` | Heavy iXBRL tags, dense tables, headers split across `<b>`/`<span>` | Normalize strips tags → regex fallback succeeds; 6 items extracted |
-| **C** (Citi) | `0000831001-25-000067` | Items 10–14 are "incorporated by reference to Proxy Statement" | Correctly flagged `incorporated_by_reference` with `text=None`; no hallucinated content |
-| **BRK.B** | `0000950170-25-025210` | K-1 page numbering in TOC, unusual structure | Heldout — not tuned against |
+| **INTC** | `0000050863-25-000009` | Heavy iXBRL, section-name fallback | 22 items extracted Tier0; gold match |
+| **C** (Citi) | `0000831001-25-000067` | Items 10–14 incorporated by reference | 3/3 required (1A,7,8); 5 incorporated |
+| **BRK.B** | `0000950170-25-025210` | Heldout K-1 TOC variant | Local snapshot: 4/4 required, 21 extracted — see `reports/heldout_snapshot.json` |
 
 ### Not Yet Supported
 
@@ -165,18 +169,20 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetE
 ```bash
 pytest -m unit                              # L1: deterministic, zero LLM
 pytest -m integration                       # L2: mock integration
-pytest -m eval                              # L3: manifest eval (uses cache fixtures)
-python scripts/run_eval.py --split train    # export reports/eval_train.csv
+pytest -m eval                              # L3: SEC manifest + agent manifest
+python scripts/run_eval.py --split train    # SEC → reports/eval_train.csv
+python scripts/run_agent_eval.py            # SEC + agent live eval → CSV + summary
+python scripts/run_heldout_snapshot.py      # BRK.B heldout (local only)
+python scripts/demo_circuit_breaker.py      # BudgetExceeded demo
 ```
 
-Held-out split (`--split heldout`): local/demo only, not used for tuning.
+Held-out split: **not used for tuning** — results in `reports/heldout_snapshot.json` only.
 
-## Eval Fixtures
+## Eval Data
 
-The HTML files under `task2_sec/eval/cache/` are **synthetic 10-K fixtures** crafted to
-exercise the pipeline's TOC, regex fallback, iXBRL normalization, and incorporation-by-reference
-detection. They are intentionally committed for reproducible offline CI. For real-filing
-validation, supply a valid `SEC_USER_AGENT` and run with a live EDGAR URL (cache-miss path).
+- **`task2_sec/eval/cache/`**: Real EDGAR HTML cached for offline CI (`edgar_client` rate-limit compliant). Use **Force refresh** in SEC UI for live filings.
+- **`reports/eval_train.csv`**: Unified SEC + agent metrics (see Eval page).
+- **`reports/eval_summary.json`**: Aggregate P50/P95/cost/success rate for `docs/analysis.md`.
 
 ## Design Trade-offs
 

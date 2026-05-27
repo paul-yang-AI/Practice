@@ -50,6 +50,7 @@ def test_llm_router_fallback_tier2_on_primary_429() -> None:
                 "LLM_TIER2_PRIMARY": primary,
                 "LLM_TIER2_FALLBACK": fallback,
                 "LLM_FALLBACK_ENABLED": "true",
+                "OPENROUTER_API_KEY": "test-key-for-mock",
             },
         ):
             from shared_harness import llm_config

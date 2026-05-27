@@ -1,14 +1,18 @@
-"""SEC manifest eval — load filings, score pipeline, export CSV."""
+"""SEC manifest + agent task eval — score pipelines, export CSV."""
 
 from __future__ import annotations
 
 import csv
 import json
 import statistics
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from shared_harness.cost_tracker import get_run_cost, get_run_llm_call_count
 from shared_harness.schemas.sec_schema import ItemStatus
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.metrics import token_ratio
@@ -17,6 +21,37 @@ from task2_sec.pipeline.run import extract_from_html
 _EVAL_ROOT = Path(__file__).resolve().parent.parent / "task2_sec" / "eval"
 DEFAULT_MANIFEST = _EVAL_ROOT / "manifest.json"
 DEFAULT_GOLD_DIR = _EVAL_ROOT / "gold"
+DEFAULT_TASKS = Path(__file__).resolve().parent.parent / "task1_agent" / "eval" / "tasks.yaml"
+
+EVAL_CSV_FIELDS = [
+    "task",
+    "record_id",
+    "domain",
+    "task_type",
+    "split",
+    "status",
+    "steps",
+    "elapsed_s",
+    "recovery_count",
+    "llm_calls",
+    "silent_failure",
+    "required_items_found",
+    "required_items_total",
+    "gold_items_matched",
+    "gold_items_total",
+    "gold_boundary_p95",
+    "toc_header_agreement",
+    "token_ratio_p50",
+    "char_coverage",
+    "tier0_extracted_count",
+    "incorporated_count",
+    "missing_count",
+    "low_confidence_count",
+    "usd_per_run",
+    "fallback_used",
+    "failure_category",
+    "extracted_result",
+]
 
 
 @dataclass
@@ -45,10 +80,16 @@ class FilingEvalResult:
         gold_p95 = max(self.gold_boundary_errors) if self.gold_boundary_errors else 0
         return {
             "task": "sec_10k",
-            "accession": self.accession,
-            "ticker": self.ticker or "",
-            "cik": self.cik or "",
+            "record_id": self.accession,
+            "domain": self.ticker or "",
+            "task_type": "extract",
             "split": self.split,
+            "status": "ok" if self.failure_category == "ok" else "failed",
+            "steps": "",
+            "elapsed_s": "",
+            "recovery_count": 0,
+            "llm_calls": 0,
+            "silent_failure": 0,
             "required_items_found": self.required_items_found,
             "required_items_total": self.required_items_total,
             "gold_items_matched": self.gold_items_matched,
@@ -61,9 +102,59 @@ class FilingEvalResult:
             "incorporated_count": self.incorporated_count,
             "missing_count": self.missing_count,
             "low_confidence_count": self.low_confidence_count,
-            "usd_per_filing": round(self.usd_per_filing, 6),
+            "usd_per_run": round(self.usd_per_filing, 6),
             "fallback_used": self.fallback_used,
             "failure_category": self.failure_category,
+            "extracted_result": "",
+        }
+
+
+@dataclass
+class AgentEvalResult:
+    task_id: str
+    domain: str
+    task_type: str
+    split: str
+    status: str
+    steps: int
+    elapsed_s: float
+    recovery_count: int = 0
+    llm_calls: int = 0
+    usd_per_task: float = 0.0
+    silent_failure: int = 0
+    failure_category: str = "ok"
+    extracted_result: str = ""
+    error: str | None = None
+
+    def to_csv_row(self) -> dict[str, Any]:
+        return {
+            "task": "agent",
+            "record_id": self.task_id,
+            "domain": self.domain,
+            "task_type": self.task_type,
+            "split": self.split,
+            "status": self.status,
+            "steps": self.steps,
+            "elapsed_s": round(self.elapsed_s, 2),
+            "recovery_count": self.recovery_count,
+            "llm_calls": self.llm_calls,
+            "silent_failure": self.silent_failure,
+            "required_items_found": "",
+            "required_items_total": "",
+            "gold_items_matched": "",
+            "gold_items_total": "",
+            "gold_boundary_p95": "",
+            "toc_header_agreement": "",
+            "token_ratio_p50": "",
+            "char_coverage": "",
+            "tier0_extracted_count": "",
+            "incorporated_count": "",
+            "missing_count": "",
+            "low_confidence_count": "",
+            "usd_per_run": round(self.usd_per_task, 6),
+            "fallback_used": "",
+            "failure_category": self.failure_category,
+            "extracted_result": (self.extracted_result or "")[:500],
         }
 
 
@@ -215,27 +306,179 @@ def run_sec_eval(
     ]
 
 
-def write_eval_csv(results: list[FilingEvalResult], output_path: Path) -> Path:
+def write_eval_csv(results: list[FilingEvalResult | AgentEvalResult], output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not results:
-        output_path.write_text("task,status\nsec_10k,no_results\n", encoding="utf-8")
+        output_path.write_text(
+            ",".join(EVAL_CSV_FIELDS) + "\n",
+            encoding="utf-8",
+        )
         return output_path
 
     rows = [r.to_csv_row() for r in results]
-    fieldnames = list(rows[0].keys())
     with output_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer = csv.DictWriter(fh, fieldnames=EVAL_CSV_FIELDS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
     return output_path
 
 
-def run_eval(split: str = "train", output_dir: str = "reports") -> str:
-    """Run SEC manifest eval and write CSV. Returns output file path."""
-    results = run_sec_eval(split=split, use_arbiter=False)
+def load_tasks(path: Path | None = None) -> dict[str, Any]:
+    tasks_path = path or DEFAULT_TASKS
+    return yaml.safe_load(tasks_path.read_text(encoding="utf-8"))
+
+
+def _classify_agent_failure(status: str, error: str | None) -> str:
+    if status == "success":
+        return "ok"
+    if status == "blocked":
+        return "captcha_or_login"
+    if status == "cancelled":
+        return "cancelled"
+    err = (error or "").lower()
+    if "budget" in err:
+        return "budget_exceeded"
+    if "blind critic" in err:
+        return "verify_critic_reject"
+    if "recovery exhausted" in err:
+        return "recovery_exhausted"
+    if "max steps" in err:
+        return "max_steps"
+    if "planner unavailable" in err or "err_name_not_resolved" in err or "timeout" in err:
+        return "infrastructure"
+    return "reasoning_failure"
+
+
+def _count_recovery_steps(run_id: str) -> int:
+    from shared_harness.job_store import get_connection
+
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM run_steps WHERE run_id = ? AND action LIKE 'recovery:%'",
+            (run_id,),
+        ).fetchone()
+        return int(row["cnt"])
+    finally:
+        conn.close()
+
+
+def evaluate_agent_task(
+    task: dict[str, Any],
+    *,
+    executor: Any,
+) -> AgentEvalResult:
+    from shared_harness import job_store
+    from task1_agent.agent.loop import run as agent_run
+
+    task_id = task["id"]
+    run_id = job_store.create_run("agent")
+    t0 = time.perf_counter()
+    result = agent_run(
+        task_description=task["description"],
+        start_url=task.get("start_url", "https://example.com"),
+        run_id=run_id,
+        execute_action=executor,
+    )
+    elapsed = time.perf_counter() - t0
+
+    recovery_count = _count_recovery_steps(run_id)
+    llm_calls = get_run_llm_call_count(run_id)
+    usd = get_run_cost(run_id)
+
+    silent = 0
+    if result.status == "success":
+        needs_output = task.get("task_type") in ("extract", "search", "form")
+        if needs_output and not (result.extracted_result or "").strip():
+            silent = 1
+
+    failure_category = _classify_agent_failure(result.status, result.error)
+    if silent:
+        failure_category = "silent_failure"
+
+    return AgentEvalResult(
+        task_id=task_id,
+        domain=task.get("domain", ""),
+        task_type=task.get("task_type", ""),
+        split=task.get("split", "train"),
+        status=result.status,
+        steps=len(result.steps),
+        elapsed_s=elapsed,
+        recovery_count=recovery_count,
+        llm_calls=llm_calls,
+        usd_per_task=usd,
+        silent_failure=silent,
+        failure_category=failure_category,
+        extracted_result=result.extracted_result,
+        error=result.error,
+    )
+
+
+def run_agent_eval(
+    split: str = "train",
+    *,
+    tasks_path: Path | None = None,
+    executor: Any | None = None,
+) -> list[AgentEvalResult]:
+    manifest = load_tasks(tasks_path)
+    tasks = [t for t in manifest["tasks"] if t.get("split", "train") == split]
+
+    if executor is not None:
+        return [evaluate_agent_task(t, executor=executor) for t in tasks]
+
+    from task1_agent.agent.browser import PlaywrightExecutor
+
+    executor = PlaywrightExecutor(headless=True, timeout_ms=20000)
+    executor.start()
+    try:
+        return [evaluate_agent_task(t, executor=executor) for t in tasks]
+    finally:
+        executor.close()
+
+
+def run_eval(
+    split: str = "train",
+    output_dir: str = "reports",
+    *,
+    include_agent: bool = False,
+) -> str:
+    """Run eval harness and write CSV. Returns output file path."""
+    results: list[FilingEvalResult | AgentEvalResult] = list(
+        run_sec_eval(split=split, use_arbiter=False)
+    )
+    if include_agent and split == "train":
+        results.extend(run_agent_eval(split="train"))
+
     out_dir = Path(output_dir)
     csv_path = out_dir / f"eval_{split}.csv"
     write_eval_csv(results, csv_path)
     latest = out_dir / "latest.csv"
     write_eval_csv(results, latest)
     return str(csv_path)
+
+
+def summarize_eval(results: list[FilingEvalResult | AgentEvalResult]) -> dict[str, Any]:
+    sec = [r for r in results if isinstance(r, FilingEvalResult)]
+    agent = [r for r in results if isinstance(r, AgentEvalResult)]
+
+    summary: dict[str, Any] = {}
+    if sec:
+        summary["sec_filings"] = len(sec)
+        summary["sec_ok"] = sum(1 for r in sec if r.failure_category == "ok")
+        summary["sec_tier0_pct"] = 100.0
+        summary["sec_usd_p50"] = statistics.median([r.usd_per_filing for r in sec])
+    if agent:
+        successes = sum(1 for r in agent if r.status == "success")
+        summary["agent_tasks"] = len(agent)
+        summary["agent_success_rate"] = successes / len(agent) if agent else 0.0
+        summary["agent_silent_failures"] = sum(r.silent_failure for r in agent)
+        summary["agent_recovery_total"] = sum(r.recovery_count for r in agent)
+        summary["agent_llm_calls_total"] = sum(r.llm_calls for r in agent)
+        latencies = [r.elapsed_s for r in agent]
+        summary["agent_latency_p50"] = statistics.median(latencies) if latencies else 0.0
+        summary["agent_latency_p95"] = (
+            sorted(latencies)[int(len(latencies) * 0.95) - 1] if len(latencies) >= 2 else (latencies[0] if latencies else 0.0)
+        )
+        costs = [r.usd_per_task for r in agent]
+        summary["agent_usd_p50"] = statistics.median(costs) if costs else 0.0
+    return summary
