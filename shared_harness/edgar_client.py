@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -9,6 +10,8 @@ import time
 from pathlib import Path
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent / "task2_sec" / "eval" / "cache"
 _MIN_INTERVAL_SEC = 0.11
@@ -68,23 +71,97 @@ def _throttle() -> None:
         _last_request_at = time.monotonic()
 
 
-def fetch_filing_html(accession: str, url: str | None = None) -> str:
-    """Fetch filing HTML; returns cached content when available."""
-    path = cache_path(accession)
-    if path.exists():
-        return path.read_text(encoding="utf-8", errors="replace")
-
+def _http_get(url: str) -> httpx.Response:
+    """Single throttled HTTP GET with SEC User-Agent."""
     ua = get_user_agent()
-    if not url:
-        raise EdgarClientError("url is required when cache miss")
-
     _throttle()
     headers = {"User-Agent": ua, "Accept-Encoding": "gzip, deflate"}
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
         response = client.get(url, headers=headers)
     if response.status_code in (403, 429):
         raise EdgarRateLimitedError(f"SEC rate limited: HTTP {response.status_code}")
     response.raise_for_status()
+    return response
+
+
+def resolve_filing_url(accession: str, cik: str | None = None) -> str:
+    """Resolve the primary 10-K HTML document URL from EDGAR filing index.
+
+    Tries the EDGAR filing index page and finds the largest .htm file,
+    which is typically the main 10-K document.
+    """
+    accession_nodash = accession.replace("-", "")
+    if cik:
+        cik_clean = cik.lstrip("0") or "0"
+    else:
+        cik_clean = accession.split("-")[0].lstrip("0") or "0"
+
+    index_url = (
+        f"https://www.sec.gov/Archives/edgar/data/{cik_clean}"
+        f"/{accession_nodash}/{accession}-index.htm"
+    )
+    logger.info("Resolving filing URL from index: %s", index_url)
+
+    response = _http_get(index_url)
+    html = response.text
+
+    htm_links = re.findall(
+        r'href="([^"]+\.htm)"',
+        html,
+        re.IGNORECASE,
+    )
+    if not htm_links:
+        raise EdgarClientError(
+            f"No .htm documents found in filing index: {index_url}"
+        )
+
+    base_path = f"/Archives/edgar/data/{cik_clean}/{accession_nodash}/"
+    candidates = []
+    for link in htm_links:
+        if link.startswith("/"):
+            full = f"https://www.sec.gov{link}"
+        elif link.startswith("http"):
+            full = link
+        else:
+            full = f"https://www.sec.gov{base_path}{link}"
+        if "-index" not in link and "R1.htm" not in link and "R2.htm" not in link:
+            candidates.append(full)
+
+    if not candidates:
+        candidates = [f"https://www.sec.gov{base_path}{htm_links[0]}"]
+
+    filing_url = candidates[0]
+    logger.info("Resolved filing URL: %s", filing_url)
+    return filing_url
+
+
+def fetch_filing_html(
+    accession: str,
+    url: str | None = None,
+    *,
+    cik: str | None = None,
+    force_refresh: bool = False,
+) -> str:
+    """Fetch filing HTML from EDGAR.
+
+    Args:
+        accession: SEC accession number (e.g. '0000789019-24-000045')
+        url: Direct URL to 10-K HTML. If None, auto-resolved from EDGAR index.
+        cik: CIK number (helps resolve URL). Extracted from accession if not given.
+        force_refresh: If True, bypass cache and fetch live from EDGAR.
+
+    Returns:
+        HTML content of the filing.
+    """
+    path = cache_path(accession)
+
+    if not force_refresh and path.exists():
+        return path.read_text(encoding="utf-8", errors="replace")
+
+    if not url:
+        url = resolve_filing_url(accession, cik=cik)
+
+    response = _http_get(url)
     html = response.text
     path.write_text(html, encoding="utf-8")
     return html

@@ -5,6 +5,14 @@ from __future__ import annotations
 from shared_harness import edgar_client
 
 
-def fetch_filing_html(accession: str, url: str | None = None) -> str:
+def fetch_filing_html(
+    accession: str,
+    url: str | None = None,
+    *,
+    cik: str | None = None,
+    force_refresh: bool = False,
+) -> str:
     """Return filing HTML; cached at task2_sec/eval/cache/{accession}.html."""
-    return edgar_client.fetch_filing_html(accession, url=url)
+    return edgar_client.fetch_filing_html(
+        accession, url=url, cik=cik, force_refresh=force_refresh
+    )

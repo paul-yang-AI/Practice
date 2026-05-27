@@ -77,11 +77,21 @@ with tab_custom:
     )
     custom_ticker = st.text_input("Ticker (optional)", placeholder="MSFT")
 
-use_arbiter = st.checkbox(
-    "Enable Tier2 LLM arbiter (disputed boundaries only)",
-    value=False,
-    help="Requires GEMINI_API_KEY. Adds cost for low-confidence segments.",
-)
+col_opt1, col_opt2 = st.columns(2)
+with col_opt1:
+    force_live = st.checkbox(
+        "Force live EDGAR fetch (ignore cache)",
+        value=False,
+        help="Bypass local cache and fetch directly from SEC EDGAR. "
+        "Requires SEC_USER_AGENT. URL is auto-resolved if not provided.",
+    )
+with col_opt2:
+    use_arbiter = st.checkbox(
+        "Enable Tier2 LLM arbiter (disputed boundaries only)",
+        value=False,
+        help="Requires GEMINI_API_KEY. Adds cost for low-confidence segments.",
+    )
+
 run = st.button("Extract", type="primary")
 
 if run:
@@ -98,7 +108,13 @@ if run:
 
     with st.spinner(f"Extracting {accession}…"):
         try:
-            html = fetch_filing_html(accession, url=filing_url)
+            html = fetch_filing_html(
+                accession,
+                url=filing_url,
+                cik=cik,
+                force_refresh=force_live,
+            )
+            st.info(f"Fetched {len(html):,} characters of HTML.")
             result = extract_from_html(
                 html,
                 accession=accession,
