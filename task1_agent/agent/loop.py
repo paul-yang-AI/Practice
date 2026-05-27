@@ -97,7 +97,8 @@ def run(
 
             if step.verify.passed:
                 result.final_url = step.url
-                continue
+                result.status = "success"
+                break
 
             # Recovery
             recovery_ok = _attempt_recovery(

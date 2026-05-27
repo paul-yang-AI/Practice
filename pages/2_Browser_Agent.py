@@ -9,6 +9,7 @@ import uuid
 import streamlit as st
 
 from shared_harness import job_store
+from task1_agent.agent.browser import PlaywrightExecutor
 from task1_agent.agent.loop import run as agent_run
 
 
@@ -58,12 +59,18 @@ if submit:
     job_store.create_run("agent", run_id=run_id)
 
     def _run_agent():
-        agent_run(
-            task_description=task,
-            start_url=start_url or "https://example.com",
-            run_id=run_id,
-            cancel_event=cancel_event,
-        )
+        executor = PlaywrightExecutor(headless=True)
+        executor.start()
+        try:
+            agent_run(
+                task_description=task,
+                start_url=start_url or "https://example.com",
+                run_id=run_id,
+                cancel_event=cancel_event,
+                execute_action=executor,
+            )
+        finally:
+            executor.close()
 
     thread = threading.Thread(target=_run_agent, daemon=True)
     thread.start()

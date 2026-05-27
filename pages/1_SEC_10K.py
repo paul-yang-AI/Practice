@@ -61,6 +61,11 @@ labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in 
 choice = st.selectbox("Select filing (train manifest)", labels, index=0)
 selected = filings[labels.index(choice)]
 
+use_arbiter = st.checkbox(
+    "Enable Tier2 LLM arbiter (disputed boundaries only)",
+    value=False,
+    help="Requires GEMINI_API_KEY. Adds cost for low-confidence segments.",
+)
 run = st.button("Extract", type="primary")
 
 if run:
@@ -73,7 +78,8 @@ if run:
                 accession=accession,
                 cik=selected.get("cik"),
                 ticker=selected.get("ticker"),
-                use_arbiter=False,
+                use_arbiter=use_arbiter,
+                run_id=None,
             )
             st.session_state["sec_result"] = result
         except Exception as exc:
