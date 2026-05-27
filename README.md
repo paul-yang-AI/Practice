@@ -106,16 +106,52 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetE
 - **Cancel**: `cancel_event` checked at each step boundary; UI Stop button
 - **Eval**: 8 tasks, 6 domains, 4 task_types (`tasks.yaml`); `silent_failure == 0`
 
-**Supported**: Static sites, search engines, public pages.
-**Known limitations**: No login/CAPTCHA bypass (reports `blocked`); tab-close not guaranteed cancel.
+### Supported Sites & Operations
+
+| Domain | Task Type | Status | Notes |
+|--------|-----------|--------|-------|
+| example.com | navigate | **Pass** | Title verification, baseline smoke |
+| httpbin.org | extract | **Pass** | JSON response extraction (headers, forms) |
+| news.ycombinator.com | extract | **Pass** | Top story title extraction |
+| duckduckgo.com | search | **Pass** | Search results page verification |
+| wikipedia.org | search | **Known issue** | Requires multi-step: type in search box + submit |
+| github.com | navigate | **Known issue** | Requires multi-step: navigate from root to nested repo path |
+| sec.gov | navigate | Heldout | EDGAR filing search (not tuned) |
+| httpbin.org/forms | form | Heldout | POST form submission (not tuned) |
+
+### Known Limitations & Failure Cases
+
+- **Login / CAPTCHA**: Agent reports `blocked` immediately; no bypass attempted
+- **Multi-step form interaction**: Current executor handles navigate+observe; tasks requiring type→submit need LLM-planned action sequences (Phase 5)
+- **Dynamic SPAs (React/Vue)**: DOM may not stabilize within timeout; mitigation: `extend_wait` recovery strategy
+- **Tab-close**: Streamlit cannot detect browser tab close; use Stop button for guaranteed cancel
+- **Example failure**: `wikipedia_search` — navigates to `en.wikipedia.org` but verify rejects because "Alan Turing" keyword not found (search form not submitted)
 
 ## Task 2: SEC 10-K
 
 - **Pipeline**: Fetch → Normalize (iXBRL strip) → TOC/Regex segment → Validate (span integrity + metrics) → Arbiter (Tier2, disputed only) → Store
 - **Item 1–16**: Every legal item has a status (`extracted | low_confidence | missing | incorporated_by_reference | not_applicable`)
 - **Span integrity**: `body[start:end] == item.text` enforced before store; arbiter adjusts boundary only, never rewrites
-- **Good example**: MSFT (clean Tier0 extraction)
-- **Difficult examples**: INTC (iXBRL/dense tables), C (Items 10–14 incorporation by reference)
+
+### Good Examples (Tier0 high coverage)
+
+| Ticker | Accession | Why it works well |
+|--------|-----------|-------------------|
+| **MSFT** | `0000789019-24-000045` | Clean HTML, standard TOC, 8 items extracted at $0.00 |
+
+### Difficult / Known-Issue Filings
+
+| Ticker | Accession | Difficulty | Behavior |
+|--------|-----------|-----------|----------|
+| **INTC** | `0000050863-25-000009` | Heavy iXBRL tags, dense tables, headers split across `<b>`/`<span>` | Normalize strips tags → regex fallback succeeds; 6 items extracted |
+| **C** (Citi) | `0000831001-25-000067` | Items 10–14 are "incorporated by reference to Proxy Statement" | Correctly flagged `incorporated_by_reference` with `text=None`; no hallucinated content |
+| **BRK.B** | `0000950170-25-025210` | K-1 page numbering in TOC, unusual structure | Heldout — not tuned against |
+
+### Not Yet Supported
+
+- **PDF-primary filings**: Some older 10-K filings are PDF-only; this pipeline processes HTML only
+- **Filing without TOC or Item headers**: Falls back to regex, but may produce `missing` status
+- **Non-English filings**: SEC foreign private issuers (20-F) not tested
 
 ## Tests
 

@@ -28,13 +28,31 @@ All numbers below come from `reports/eval_train.csv` unless marked *estimated*.
 ### Task 1 — Browser Agent
 
 - **L0 every-step verify**: heuristic URL/keyword check; `silent_failure` definition =
-  L0 passed but task actually not done. Target: 0.
+  L0 passed but task actually not done. Target: 0. **Measured: 0** (train split).
 - **Blind Critic (optional)**: independent Tier1 YES/NO on final a11y tree;
   `ENABLE_BLIND_CRITIC=true`. Not agent self-reflection.
+  L2 `test_verify_blind_critic_gate` confirms: critic NO → run fails.
 - **`compress_a11y` budget**: max 12000 chars (≈3000 tokens); L1 `test_a11y_tree_truncation`.
 - **`cancel_event`**: checked each step; `finally: browser.close()`. L2 `test_agent_graceful_shutdown`.
 - **Recovery strategy table**: classified by `FailureType`; same type never repeats same
   strategy; L1 `test_recovery_routing` + L2 `test_agent_recovery_loop`.
+
+**Live evaluation results (6 train tasks, real Chromium headless):**
+
+| task_id | domain | type | status | time (s) |
+|---------|--------|------|--------|----------|
+| smoke_example_title | example.com | navigate | success | 0.2 |
+| smoke_httpbin_headers | httpbin.org | extract | success | 0.9 |
+| wikipedia_search | wikipedia.org | search | failed | 2.0 |
+| github_navigate_repo | github.com | navigate | failed | 3.2 |
+| hacker_news_top | news.ycombinator.com | extract | success | 1.1 |
+| duckduckgo_search | duckduckgo.com | search | success | 1.3 |
+
+- **Success rate**: 4/6 (67%); 2 failures are multi-step search tasks requiring form interaction
+- **Silent failures**: 0 (L0 verify correctly rejects incomplete tasks)
+- **P50 latency**: 1.2s; **P95 latency**: 3.0s
+- **Cost per task**: $0.00 (Tier0 only; no LLM calls triggered in current evaluation)
+- **Recovery steps triggered**: 0 (verify rejects immediately on keyword mismatch)
 
 ---
 
@@ -113,18 +131,27 @@ not claiming 16 items full-text 100%.*
 | USD/filing | $0.00 | $0.00 | $0.00 |
 | Fallback used | No | No | No |
 
-### Task 1 — Browser Agent
+### Task 1 — Browser Agent (Live Evaluation)
 
 | Metric | Value |
 |--------|-------|
 | Tasks in manifest | 8 (6 train, 2 heldout) |
 | Domains covered | 6 |
 | Task types | navigate, search, extract, form |
+| **Train success rate** | **4/6 (67%)** |
+| **Silent failures** | **0** |
+| **P50 latency** | **1.2s** |
+| **P95 latency** | **3.0s** |
+| **$/task (Tier0)** | **$0.00** |
 | Max steps/task | 10 |
 | Max LLM calls/task | 5 |
 | Recovery budget | 2 attempts/step, no repeat strategy |
 | Per-task cost cap | $0.50 |
 | Global budget | $20 |
+
+**Known failures** (multi-step tasks requiring form interaction):
+- `wikipedia_search`: requires typing in search box + pressing Enter (beyond single-navigate)
+- `github_navigate_repo`: requires navigating from root to nested path `/python/cpython`
 
 ---
 

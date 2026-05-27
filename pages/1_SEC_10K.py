@@ -56,10 +56,26 @@ def _render_item(item) -> None:
 st.title("SEC 10-K Extraction")
 st.caption("Hybrid Tier0 pipeline — BS4/regex segmentation with span integrity checks.")
 
-filings = _load_manifest()
-labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
-choice = st.selectbox("Select filing (train manifest)", labels, index=0)
-selected = filings[labels.index(choice)]
+tab_manifest, tab_custom = st.tabs(["From Manifest", "Custom Filing"])
+
+with tab_manifest:
+    filings = _load_manifest()
+    labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
+    choice = st.selectbox("Select filing (train manifest)", labels, index=0)
+    selected = filings[labels.index(choice)]
+
+with tab_custom:
+    custom_accession = st.text_input(
+        "Accession number",
+        placeholder="0000789019-24-000045",
+        help="SEC accession number (e.g. 0000789019-24-000045)",
+    )
+    custom_url = st.text_input(
+        "Filing URL (required for live fetch)",
+        placeholder="https://www.sec.gov/Archives/edgar/data/.../filing.htm",
+        help="Full URL to the 10-K HTML filing on SEC EDGAR",
+    )
+    custom_ticker = st.text_input("Ticker (optional)", placeholder="MSFT")
 
 use_arbiter = st.checkbox(
     "Enable Tier2 LLM arbiter (disputed boundaries only)",
@@ -69,16 +85,25 @@ use_arbiter = st.checkbox(
 run = st.button("Extract", type="primary")
 
 if run:
-    accession = selected["accession"]
-    filing_url = selected.get("url")
+    if custom_accession.strip():
+        accession = custom_accession.strip()
+        filing_url = custom_url.strip() or None
+        ticker = custom_ticker.strip() or None
+        cik = None
+    else:
+        accession = selected["accession"]
+        filing_url = selected.get("url")
+        ticker = selected.get("ticker")
+        cik = selected.get("cik")
+
     with st.spinner(f"Extracting {accession}…"):
         try:
             html = fetch_filing_html(accession, url=filing_url)
             result = extract_from_html(
                 html,
                 accession=accession,
-                cik=selected.get("cik"),
-                ticker=selected.get("ticker"),
+                cik=cik,
+                ticker=ticker,
                 use_arbiter=use_arbiter,
                 run_id=None,
             )
