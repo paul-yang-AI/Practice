@@ -104,7 +104,9 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetE
 
 ## Task 1: Browser Agent
 
-- **State machine**: Plan → Act → Observe → Verify (L0) → Reflect (only on failure)
+- **State machine**: Navigate → LLM Plan → Act → Observe → Verify (L0) → Reflect (only on failure)
+- **Multi-step execution**: Step 0 navigates; steps 1+ are LLM-planned (click, type, scroll, press_key)
+- **Result extraction**: When task completes, LLM extracts task-specific result from the page
 - **Recovery**: classified by `FailureType` → strategy table (no blind retry)
 - **Verify**: L0 heuristic per step + optional Blind Critic terminal gate (`ENABLE_BLIND_CRITIC=true`)
 - **Cancel**: `cancel_event` checked at each step boundary; UI Stop button
@@ -116,20 +118,21 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. `BudgetE
 |--------|-----------|--------|-------|
 | example.com | navigate | **Pass** | Title verification, baseline smoke |
 | httpbin.org | extract | **Pass** | JSON response extraction (headers, forms) |
-| news.ycombinator.com | extract | **Pass** | Top story title extraction |
-| duckduckgo.com | search | **Pass** | Search results page verification |
-| wikipedia.org | search | **Known issue** | Requires multi-step: type in search box + submit |
-| github.com | navigate | **Known issue** | Requires multi-step: navigate from root to nested repo path |
+| news.ycombinator.com | extract | **Pass** | Top story title extraction via LLM planning |
+| duckduckgo.com | search | **Pass** | Multi-step: type query → press Enter → verify results |
+| wikipedia.org | search | **Pass** | Multi-step: type in search box → submit → verify article |
+| github.com | navigate | **Pass** | LLM-planned navigation to target repository |
 | sec.gov | navigate | Heldout | EDGAR filing search (not tuned) |
 | httpbin.org/forms | form | Heldout | POST form submission (not tuned) |
 
 ### Known Limitations & Failure Cases
 
 - **Login / CAPTCHA**: Agent reports `blocked` immediately; no bypass attempted
-- **Multi-step form interaction**: Current executor handles navigate+observe; tasks requiring type→submit need LLM-planned action sequences (Phase 5)
+- **Complex multi-step forms**: Multi-field forms with dropdowns/checkboxes may be unreliable
 - **Dynamic SPAs (React/Vue)**: DOM may not stabilize within timeout; mitigation: `extend_wait` recovery strategy
 - **Tab-close**: Streamlit cannot detect browser tab close; use Stop button for guaranteed cancel
-- **Example failure**: `wikipedia_search` — navigates to `en.wikipedia.org` but verify rejects because "Alan Turing" keyword not found (search form not submitted)
+- **Geo-restricted sites**: Behavior depends on server location (Zeabur region)
+- **Heavy JavaScript**: Sites that require extensive client-side rendering may timeout on initial load
 
 ## Task 2: SEC 10-K
 

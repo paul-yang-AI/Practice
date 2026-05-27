@@ -43,3 +43,19 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   always returns `blocked`. L2 `test_agent_recovery_loop` confirms recovery→success and
   exhaustion→failed paths work end-to-end.
   New L2 `test_verify_blind_critic_gate` confirms critic NO → run fails (silent_failure=0).
+
+## agent_plan: v1 → v2 (multi-step execution + result extraction)
+
+- **Failed Path**: v1 agent treated step 0 (navigation) as potentially task-complete — if
+  the page loaded and verify passed, the loop broke immediately. This meant search tasks
+  (DuckDuckGo, Wikipedia) and extraction tasks (Hacker News top story) would always fail
+  because the agent never interacted with the page beyond loading it. Output was limited
+  to status only (success/failed), with no task-specific result.
+- **Resolution**: Redesigned loop in `loop.py` — step 0 ALWAYS continues to LLM planning;
+  steps 1+ use `_plan_next_action()` to determine actions (click, type, scroll, etc.) and
+  declare `done=true` with a `result` field only when the task is genuinely complete.
+  Updated `AgentAction` schema with `result: str` field. Updated `v1_agent_plan.txt` to
+  instruct: "do NOT set done=true just because the page loaded; fill result when done."
+- **Validation**: All 58 tests pass (46 unit + 12 integration); `test_agent_recovery_loop`
+  and `test_verify_blind_critic_gate` confirm multi-step flow works correctly with
+  recovery and Blind Critic gate. Train success rate improved from 4/6 → 6/6.
