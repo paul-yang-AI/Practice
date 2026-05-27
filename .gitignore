@@ -6,6 +6,9 @@ venv/
 *.db
 *.sqlite
 task2_sec/eval/cache/*.html
+!task2_sec/eval/cache/0000789019-24-000045.html
+!task2_sec/eval/cache/0000050863-25-000009.html
+!task2_sec/eval/cache/0000831001-25-000067.html
 reports/*.csv
 .pytest_cache/
 .streamlit/secrets.toml

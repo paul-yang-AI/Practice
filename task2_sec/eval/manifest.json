@@ -1,3 +1,38 @@
 {
-  "filings": []
+  "filings": [
+    {
+      "ticker": "MSFT",
+      "cik": "789019",
+      "accession": "0000789019-24-000045",
+      "label": "clean_baseline",
+      "split": "train",
+      "stress": []
+    },
+    {
+      "ticker": "INTC",
+      "cik": "50863",
+      "accession": "0000050863-25-000009",
+      "label": "ixbrl_monster",
+      "split": "train",
+      "stress": ["ixbrl", "dense_tables"]
+    },
+    {
+      "ticker": "C",
+      "cik": "831001",
+      "accession": "0000831001-25-000067",
+      "label": "incorporation_by_reference",
+      "split": "train",
+      "stress": ["items_10_14_reference"]
+    },
+    {
+      "ticker": "BRK.B",
+      "cik": "1067983",
+      "accession": "0000950170-25-025210",
+      "label": "heldout_toc",
+      "split": "heldout",
+      "stress": ["k1_toc"]
+    }
+  ],
+  "gold_items": ["1", "1A", "1B", "1C", "7", "8", "10", "14"],
+  "required_items": ["1", "1A", "7", "8"]
 }

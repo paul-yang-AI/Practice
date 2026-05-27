@@ -1,0 +1,40 @@
+{
+  "accession": "0000831001-25-000067",
+  "items": {
+    "1": {
+      "start": 119,
+      "end": 314,
+      "status": "extracted"
+    },
+    "1A": {
+      "start": 314,
+      "end": 504,
+      "status": "extracted"
+    },
+    "1B": {
+      "start": 504,
+      "end": 547,
+      "status": "extracted"
+    },
+    "7": {
+      "start": 547,
+      "end": 808,
+      "status": "extracted"
+    },
+    "8": {
+      "start": 808,
+      "end": 1023,
+      "status": "extracted"
+    },
+    "10": {
+      "start": 1023,
+      "end": 1235,
+      "status": "incorporated_by_reference"
+    },
+    "14": {
+      "start": 1839,
+      "end": 2033,
+      "status": "incorporated_by_reference"
+    }
+  }
+}

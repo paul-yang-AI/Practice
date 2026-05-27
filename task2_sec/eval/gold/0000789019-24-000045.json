@@ -1,0 +1,35 @@
+{
+  "accession": "0000789019-24-000045",
+  "items": {
+    "1": {
+      "start": 175,
+      "end": 387,
+      "status": "extracted"
+    },
+    "1A": {
+      "start": 387,
+      "end": 564,
+      "status": "extracted"
+    },
+    "1B": {
+      "start": 564,
+      "end": 607,
+      "status": "extracted"
+    },
+    "1C": {
+      "start": 607,
+      "end": 720,
+      "status": "extracted"
+    },
+    "7": {
+      "start": 804,
+      "end": 998,
+      "status": "extracted"
+    },
+    "8": {
+      "start": 1143,
+      "end": 1365,
+      "status": "extracted"
+    }
+  }
+}

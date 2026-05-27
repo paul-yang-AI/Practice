@@ -1,4 +1,4 @@
-"""Eval runner stub — full implementation on Day 4."""
+"""Run SEC manifest eval and export CSV."""
 
 from __future__ import annotations
 
@@ -11,18 +11,16 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from shared_harness.env import load_env
+from shared_harness.eval_runner import run_eval
 
 
 def main() -> None:
     load_env()
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--split", default="train")
+    parser = argparse.ArgumentParser(description="Run SEC 10-K eval harness")
+    parser.add_argument("--split", default="train", choices=["train", "heldout"])
     parser.add_argument("--output", default="reports")
     args = parser.parse_args()
-    out = Path(args.output)
-    out.mkdir(parents=True, exist_ok=True)
-    csv_path = out / "eval_stub.csv"
-    csv_path.write_text("phase,status\n0,scaffold\n", encoding="utf-8")
+    csv_path = run_eval(split=args.split, output_dir=args.output)
     print(f"Wrote {csv_path} (split={args.split})")
 
 
