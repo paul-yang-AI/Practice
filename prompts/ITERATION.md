@@ -21,3 +21,17 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   `incorporated_by_reference` with `text=None` to avoid hallucinating content.
 - **Validation**: `test_item_status::test_incorporation_by_reference_no_fake_fulltext` green;
   `test_sec_manifest_citi_incorporation` confirms Items 10 and 14 correctly flagged.
+
+## agent_recovery: classified routing vs blind retry
+
+- **Failed Path**: Initial agent design used a generic `try/except → retry` loop. Same
+  recovery action was attempted repeatedly (e.g. re-clicking the same missing element),
+  burning LLM calls without progress and triggering `MaxLLMCalls` breaker.
+- **Resolution**: Introduced `FailureType` enum + `STRATEGY_TABLE` in `recovery.py`.
+  `get_next_strategy(failure_type, attempted)` returns the next *untried* strategy;
+  `MAX_RECOVERY_PER_STEP = 2` caps retries. `prompt_loader.load_prompt("recovery",
+  variant=failure_type)` injects the matching SOP fragment from `prompts/sops/recovery.md`.
+- **Validation**: `test_recovery_routing` (9 assertions) green — `ACTION_NO_EFFECT` returns
+  different strategies on each call; exhausted strategies return `None`; `CAPTCHA_OR_LOGIN`
+  always returns `blocked`. L2 `test_agent_recovery_loop` confirms recovery→success and
+  exhaustion→failed paths work end-to-end.
