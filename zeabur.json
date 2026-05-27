@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.zeabur.app/template.json",
+  "build_type": "dockerfile",
+  "port": 8501,
+  "env": {
+    "GEMINI_API_KEY": {
+      "description": "Google AI Studio API key for Tier1/Tier2 LLM calls",
+      "required": true
+    },
+    "SEC_USER_AGENT": {
+      "description": "SEC EDGAR User-Agent (format: Company Name email@domain.com)",
+      "required": true
+    },
+    "OPENROUTER_API_KEY": {
+      "description": "OpenRouter API key for fallback models (optional)",
+      "required": false
+    },
+    "RUN_BUDGET_USD": {
+      "description": "Max USD spend per run before circuit-break",
+      "default": "2.0"
+    }
+  }
+}

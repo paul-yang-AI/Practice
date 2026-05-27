@@ -70,9 +70,10 @@ run = st.button("Extract", type="primary")
 
 if run:
     accession = selected["accession"]
+    filing_url = selected.get("url")
     with st.spinner(f"Extracting {accession}…"):
         try:
-            html = fetch_filing_html(accession)
+            html = fetch_filing_html(accession, url=filing_url)
             result = extract_from_html(
                 html,
                 accession=accession,
