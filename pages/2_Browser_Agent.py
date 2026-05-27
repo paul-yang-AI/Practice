@@ -178,7 +178,23 @@ if run_id and (refresh or submit):
 
     steps = _get_run_steps(run_id)
     if steps:
-        st.subheader(f"Steps ({len(steps)})")
+        # Show extracted result prominently if available
+        extracted_result = None
+        for s in reversed(steps):
+            if s.get("log_json"):
+                try:
+                    log = json.loads(s["log_json"])
+                    if log.get("extracted_result"):
+                        extracted_result = log["extracted_result"]
+                        break
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        if extracted_result:
+            st.subheader("Result")
+            st.markdown(f"```\n{extracted_result}\n```")
+
+        st.subheader(f"Execution Steps ({len(steps)})")
 
         for s in steps:
             action = s.get("action", "")
@@ -193,7 +209,16 @@ if run_id and (refresh or submit):
             else:
                 icon = "arrow_right"
 
-            header = f":{icon}: Step {s['step_index']} — `{action}`"
+            action_display = action
+            if action.startswith("navigate:"):
+                action_display = f"Navigate to {action[9:]}"
+            elif action == "task_complete":
+                action_display = "Task complete"
+            elif ":" in action:
+                parts = action.split(":", 1)
+                action_display = f"{parts[0].title()}: {parts[1]}"
+
+            header = f":{icon}: Step {s['step_index']} — {action_display}"
             if s.get("failure_type"):
                 header += f" | Recovery: {s.get('recovery_strategy', 'N/A')}"
 
@@ -212,8 +237,10 @@ if run_id and (refresh or submit):
                             st.caption(f"URL: {log['url']}")
                         if log.get("error"):
                             st.error(f"Error: {log['error']}")
-                        if log.get("action"):
+                        if log.get("action") and log["action"] not in ("task_complete",):
                             st.caption(f"Action: {log['action']}")
+                        if log.get("extracted_result"):
+                            st.success(f"**Extracted:** {log['extracted_result']}")
                     except (json.JSONDecodeError, TypeError):
                         st.text(s["log_json"])
 
@@ -233,12 +260,13 @@ with st.expander("How it works", expanded=False):
     st.markdown("""
 **Architecture**: Plan → Act → Observe → Verify → Reflect
 
-1. **Navigate** to the start URL
-2. **Verify** page loaded (L0 heuristic: URL, content, no errors)
-3. If task needs interaction → **LLM plans** the next action (click, type, etc.)
-4. **Execute** the planned action
-5. **Verify** result → **Recover** if failed (classified strategies, max 2 per step)
-6. Repeat up to 10 steps (budget: max 5 LLM calls)
+1. **Step 0**: Navigate to start URL, verify page loads
+2. **Step 1+**: LLM analyzes page state and plans next action (click, type, scroll, etc.)
+3. **Execute** the planned action via Playwright
+4. **Verify** result (L0 heuristic: URL, content, no errors)
+5. If verify fails → **Recover** with classified strategies (max 2 per step)
+6. When LLM determines task is complete → extract task-specific **result**
+7. Optional: **Blind Critic** terminal gate (independent LLM YES/NO verification)
 
 **Guards against infinite loops**:
 - Max 10 steps total
@@ -250,14 +278,16 @@ with st.expander("How it works", expanded=False):
 with st.expander("Supported & Limitations", expanded=False):
     st.markdown("""
 **Works well**:
-- Simple navigation (any public website)
-- Reading page content (Hacker News, Wikipedia, httpbin)
-- Single-step search (DuckDuckGo, Wikipedia)
+- Navigation + content extraction (any public website)
+- Information lookup (Hacker News top stories, Wikipedia articles)
+- Search tasks (DuckDuckGo, Wikipedia search)
+- Page data extraction (httpbin, API responses)
+- Multi-step interactions (search → read results)
 
 **Known limitations**:
 - No login/CAPTCHA bypass (reports `blocked`)
-- Multi-step form fills may be unreliable
-- JavaScript-heavy SPAs may timeout
+- Complex multi-step form fills may be unreliable
+- JavaScript-heavy SPAs may timeout on initial load
 - Geo-restricted sites depend on server location
 - Tab-close does not guarantee immediate cancel (use Stop button)
 """)

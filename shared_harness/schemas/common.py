@@ -42,3 +42,7 @@ class AgentAction(BaseModel):
         default="",
         description="One-sentence explanation of why this action advances the task.",
     )
+    result: str = Field(
+        default="",
+        description="When done=true, the task-specific result extracted from the page (e.g., found text, data, answer).",
+    )

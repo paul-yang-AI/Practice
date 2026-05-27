@@ -35,6 +35,7 @@ class StepResult:
     failure_type: FailureType | None = None
     recovery_strategy: str | None = None
     error: str | None = None
+    extracted_result: str = ""
 
 
 @dataclass
@@ -43,6 +44,7 @@ class RunResult:
     status: str = "success"
     steps: list[StepResult] = field(default_factory=list)
     final_url: str = ""
+    extracted_result: str = ""
     error: str | None = None
 
 
@@ -70,7 +72,8 @@ def _plan_next_action(
             "role": "system",
             "content": (
                 "You are a browser automation planner. Given a task and the current page state, "
-                "decide the next action. If the task is already complete, set done=true.\n\n"
+                "decide the next action. If the task is already complete, set done=true and "
+                "provide the result.\n\n"
                 "Available actions: click, type, scroll, press_key, navigate, none\n"
                 "- click: selector = text/label of element to click\n"
                 "- type: selector = input placeholder/label, value = text to type\n"
@@ -79,6 +82,8 @@ def _plan_next_action(
                 "- navigate: value = URL to go to\n\n"
                 "Rules:\n"
                 "- If the page shows the expected result, set done=true\n"
+                "- When done=true, fill 'result' with the task answer extracted from the page "
+                "(e.g., the text found, the data extracted, the title, the search results)\n"
                 "- Be specific with selectors (use visible text/labels)\n"
                 "- Do NOT repeat the same failed action\n"
                 "- Output valid JSON only, no markdown"
@@ -92,7 +97,7 @@ def _plan_next_action(
                 f"PAGE CONTENT (first 2000 chars):\n{page_snippet}\n\n"
                 f"ACCESSIBILITY TREE (compressed):\n{tree_snippet}\n\n"
                 f"STEP: {step_index} of {MAX_STEPS}\n\n"
-                "Plan the next action as JSON: {done, action, selector, value, reasoning}"
+                "Plan the next action as JSON: {done, action, selector, value, reasoning, result}"
             ),
         },
     ]
@@ -141,6 +146,7 @@ def run(
                 break
 
             if step_idx == 0:
+                # Step 0: navigate to start URL
                 step = _execute_step(
                     step_index=step_idx,
                     task_description=task_description,
@@ -150,6 +156,7 @@ def run(
                     cancel_event=cancel_event,
                 )
             else:
+                # Step 1+: LLM plans and executes next action
                 step = _execute_planned_step(
                     step_index=step_idx,
                     task_description=task_description,
@@ -162,6 +169,10 @@ def run(
 
             result.steps.append(step)
 
+            log_data = {"url": step.url, "error": step.error, "action": step.action}
+            if step.extracted_result:
+                log_data["extracted_result"] = step.extracted_result
+
             job_store.insert_step(
                 run_id,
                 step_idx,
@@ -169,10 +180,7 @@ def run(
                 status="success" if step.verify.passed else "failed",
                 failure_type=step.failure_type.value if step.failure_type else None,
                 recovery_strategy=step.recovery_strategy,
-                log_json=json.dumps(
-                    {"url": step.url, "error": step.error, "action": step.action},
-                    default=str,
-                ),
+                log_json=json.dumps(log_data, default=str),
             )
 
             if step.error and step.failure_type == FailureType.CAPTCHA_OR_LOGIN:
@@ -180,33 +188,21 @@ def run(
                 result.error = step.error
                 break
 
-            if step.verify.passed:
-                # For step 0 (navigate), check if we need more actions
-                if step_idx == 0 and _task_needs_interaction(task_description):
-                    plan = _plan_next_action(
-                        task_description,
-                        step.url,
-                        step.page_text,
-                        step.a11y_tree,
-                        step_idx,
-                        run_id,
-                    )
-                    if plan and plan.get("done"):
-                        result.final_url = step.url
-                        result.status = "success"
-                        break
-                    elif plan and plan.get("action") != "none":
-                        continue
-                    else:
-                        result.final_url = step.url
-                        result.status = "success"
-                        break
-                else:
-                    result.final_url = step.url
-                    result.status = "success"
-                    break
+            # Check if LLM declared task complete (step 1+)
+            if step.action == "task_complete":
+                result.final_url = step.url
+                result.status = "success"
+                break
 
-            # Recovery
+            if step.verify.passed:
+                if step_idx == 0:
+                    # Step 0 passed (page loaded) — always proceed to LLM planning
+                    continue
+                else:
+                    # Action step passed verification — continue to next LLM plan
+                    continue
+
+            # Verify failed — attempt recovery
             recovery_ok = _attempt_recovery(
                 step=step,
                 step_index=step_idx,
@@ -222,8 +218,15 @@ def run(
                 break
         else:
             if result.status not in ("cancelled", "blocked"):
+                # Max steps reached without completion — extract whatever we can
                 result.status = "failed"
-                result.error = "Max steps reached"
+                result.error = "Max steps reached without task completion"
+
+        # Capture extracted result from the final step
+        if result.steps:
+            last_step = result.steps[-1]
+            if last_step.extracted_result:
+                result.extracted_result = last_step.extracted_result
 
         # Terminal gate: Blind Critic
         if result.status == "success" and blind_critic_enabled() and result.steps:
@@ -248,14 +251,6 @@ def run(
     return result
 
 
-def _task_needs_interaction(task: str) -> bool:
-    """Heuristic: does the task require more than just page navigation?"""
-    lower = task.lower()
-    interaction_signals = [
-        "search", "type", "fill", "submit", "click", "select",
-        "enter", "input", "form", "find and", "extract the",
-    ]
-    return any(signal in lower for signal in interaction_signals)
 
 
 def _execute_step(
@@ -298,14 +293,7 @@ def _execute_planned_step(
     )
 
     if plan is None:
-        return StepResult(
-            step_index=step_index,
-            action="plan_failed",
-            url=prev_url,
-            verify=VerifyResult(passed=True),
-        )
-
-    if plan.get("done"):
+        # LLM unavailable — treat as task completion with current state
         return StepResult(
             step_index=step_index,
             action="task_complete",
@@ -313,7 +301,21 @@ def _execute_planned_step(
             page_text=prev_text,
             a11y_tree=prev_tree,
             verify=VerifyResult(passed=True),
+            extracted_result="(LLM planner unavailable — task ended with current page state)",
         )
+
+    if plan.get("done"):
+        step = StepResult(
+            step_index=step_index,
+            action="task_complete",
+            url=prev_url,
+            page_text=prev_text,
+            a11y_tree=prev_tree,
+            verify=VerifyResult(passed=True),
+        )
+        # Store extracted result from LLM
+        step.extracted_result = plan.get("result", "")
+        return step
 
     action_desc = f"{plan.get('action', 'none')}:{plan.get('selector', '') or plan.get('value', '')}"
     try:

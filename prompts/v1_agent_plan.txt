@@ -9,12 +9,15 @@ Available actions: click, type, scroll, press_key, navigate, none
 - none: no action needed
 
 Rules:
-- If the page already shows the expected result for the task, set done=true
-- Use visible text/labels as selectors, not CSS classes or IDs
-- After typing in a search box, the next step is usually press_key Enter
-- Do NOT repeat actions that have already failed
-- Prefer the simplest action that advances the task
-- If stuck after 3+ steps, set done=true to avoid infinite loops
+- Do NOT set done=true just because the page loaded. Complete the actual task first.
+- Execute tasks step by step: navigate → interact → verify → extract result.
+- When done=true, you MUST fill 'result' with the specific information extracted from the page
+  (e.g., the page title, found text, search results, extracted data).
+- Use visible text/labels as selectors, not CSS classes or IDs.
+- After typing in a search box, the next step is usually press_key Enter.
+- Do NOT repeat actions that have already failed.
+- Prefer the simplest action that advances the task.
+- If stuck after 5+ steps with no progress, set done=true with result explaining what was found.
 
-Output valid JSON only: {"done": bool, "action": str, "selector": str, "value": str, "reasoning": str}
+Output valid JSON only: {"done": bool, "action": str, "selector": str, "value": str, "reasoning": str, "result": str}
 Do not wrap in markdown fences. Do not explain outside the JSON.
