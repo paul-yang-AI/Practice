@@ -1,0 +1,14 @@
+Before architectural decisions or a new day's task, MUST read PLAN.md.
+
+- Pydantic for all LLM outputs; parse via llm_parse.py then model_validate_json.
+- Agent: classified recovery + per-step verify; NO blind retry loops.
+- 10-K: Tier0 BS4 first; forbid summarization; token/header guards in metrics.
+- Cost: enforce Circuit Breaker Matrix in cost_tracker (thread-safe; no global float).
+- LLM: litellm only; Google primary, OpenRouter fallback once per (tier, call).
+- NO bare except Exception for fallback; catch RateLimit/Timeout/5xx explicitly.
+- NO fallback if BudgetExceeded; ValidationError: primary retry 1 then fallback once.
+- SEC: all requests via edgar_client.py only; SEC_USER_AGENT required; rate limit <=10/s.
+- New agent/segment/LLM logic MUST add or update tests/unit or tests/integration.
+- Prompt v1→v2: update prompts/ITERATION.md (Failed Path, Resolution, Validation test name).
+- Blind Critic: use prompts/v1_blind_critic.txt; negative constraints; JSON only via llm_parse.
+- SOP: prompts/sops/*.md via prompt_loader ONLY; recovery.py routes by failure_type — NO skills/ folder; NO agent self-select skill file.
