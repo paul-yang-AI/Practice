@@ -181,16 +181,29 @@ with tab_manifest:
     selected = filings[labels.index(choice)]
 
 with tab_custom:
-    st.markdown("輸入 SEC EDGAR 的 accession number，即時抽取任何 10-K 報表。")
+    st.markdown(
+        "輸入 SEC EDGAR 的 accession number，即時抽取任何 10-K 報表。\n\n"
+        "💡 **提示**：可在 [EDGAR Full-Text Search](https://efts.sec.gov/LATEST/search-index?q=%2210-K%22&dateRange=custom&startdt=2024-01-01&enddt=2025-12-31&forms=10-K) "
+        "搜尋公司名稱找到 accession number。"
+    )
     custom_accession = st.text_input(
         "Accession Number",
-        placeholder="0000950170-24-087843",
+        placeholder="例：0000950170-24-087843",
+        help="格式：XXXXXXXXXX-YY-ZZZZZZ（含連字號）",
     )
+    col_cik, col_ticker = st.columns(2)
+    with col_cik:
+        custom_cik = st.text_input(
+            "CIK（選填，建議填寫）",
+            placeholder="例：789019（微軟）",
+            help="公司的 CIK 編號。若不填，系統會自動從 EDGAR 查詢，但可能較慢。",
+        )
+    with col_ticker:
+        custom_ticker = st.text_input("股票代碼（選填）", placeholder="MSFT")
     custom_url = st.text_input(
         "報表 URL（選填，留空自動解析）",
         placeholder="https://www.sec.gov/Archives/edgar/data/.../filing.htm",
     )
-    custom_ticker = st.text_input("股票代碼（選填）", placeholder="MSFT")
 
 use_arbiter = st.checkbox(
     "🧠 啟用 LLM 仲裁（處理爭議邊界）",
@@ -206,7 +219,7 @@ if run:
         accession = custom_accession.strip()
         filing_url = custom_url.strip() or None
         ticker = custom_ticker.strip() or None
-        cik = None
+        cik = custom_cik.strip() or None
     else:
         accession = selected["accession"]
         filing_url = selected.get("url")
@@ -233,7 +246,15 @@ if run:
             st.session_state["sec_result"] = result
             st.session_state["sec_html_len"] = len(html)
         except Exception as exc:
-            st.error(f"❌ 抽取失敗：{exc}")
+            err_msg = str(exc)
+            st.error(f"❌ 抽取失敗：{err_msg}")
+            if "CIK" in err_msg or "404" in err_msg or "index" in err_msg.lower():
+                st.info(
+                    "💡 **常見原因**：\n"
+                    "1. Accession number 格式不正確（需含連字號，如 `0000950170-24-087843`）\n"
+                    "2. 該報表的 CIK 無法自動解析 — 請在上方填入公司的 CIK\n"
+                    "3. 直接貼上完整的 EDGAR 報表 URL 可以跳過 CIK 解析"
+                )
 
 result = st.session_state.get("sec_result")
 if result:

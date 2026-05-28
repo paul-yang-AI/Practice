@@ -91,51 +91,78 @@ def _http_get(url: str, *, retries: int = 2) -> httpx.Response:
     raise last_exc or EdgarClientError(f"Failed after {retries} retries: {url}")
 
 
-def resolve_filing_url(accession: str, cik: str | None = None) -> str:
-    """Resolve the primary 10-K HTML document URL from EDGAR filing index.
+def _lookup_cik_from_accession(accession: str) -> str | None:
+    """Use EDGAR submissions API to find the company CIK that owns this filing."""
+    filer_cik = accession.split("-")[0].lstrip("0") or "0"
+    padded = filer_cik.zfill(10)
+    submissions_url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+    logger.info("Looking up CIK from submissions: %s", submissions_url)
+    try:
+        resp = _http_get(submissions_url)
+        import json as _json
+        data = _json.loads(resp.text)
+        company_cik = str(data.get("cik", "")).lstrip("0") or filer_cik
+        recent = data.get("filings", {}).get("recent", {})
+        accession_list = recent.get("accessionNumber", [])
+        if accession in accession_list:
+            return company_cik
+        return company_cik
+    except Exception as exc:
+        logger.warning("CIK lookup failed for %s: %s", accession, exc)
+        return None
 
-    Parses the EDGAR filing index and identifies the main filing document
-    by filtering out navigation links, exhibits, and iXBRL viewer wrappers.
-    """
+
+def _try_resolve_index(cik_clean: str, accession: str) -> httpx.Response | None:
+    """Try to fetch the filing index page for a given CIK."""
     accession_nodash = accession.replace("-", "")
-    if cik:
-        cik_clean = cik.lstrip("0") or "0"
-    else:
-        cik_clean = accession.split("-")[0].lstrip("0") or "0"
-
     index_url = (
         f"https://www.sec.gov/Archives/edgar/data/{cik_clean}"
         f"/{accession_nodash}/{accession}-index.htm"
     )
-    logger.info("Resolving filing URL from index: %s", index_url)
-
     try:
-        response = _http_get(index_url)
+        return _http_get(index_url)
     except (httpx.HTTPStatusError, EdgarClientError):
-        # Fallback: try JSON index format
-        json_index_url = (
-            f"https://www.sec.gov/Archives/edgar/data/{cik_clean}"
-            f"/{accession_nodash}/index.json"
-        )
-        logger.warning("HTML index failed, trying JSON index: %s", json_index_url)
-        try:
-            json_resp = _http_get(json_index_url)
-            import json as _json
-            idx_data = _json.loads(json_resp.text)
-            for item in idx_data.get("directory", {}).get("item", []):
-                name = item.get("name", "")
-                if name.endswith(".htm") and not name.endswith("-index.htm"):
-                    if "ex" not in name.lower():
-                        base_path = f"/Archives/edgar/data/{cik_clean}/{accession_nodash}/"
-                        return f"https://www.sec.gov{base_path}{name}"
-        except Exception:
-            pass
+        return None
+
+
+def resolve_filing_url(accession: str, cik: str | None = None) -> str:
+    """Resolve the primary 10-K HTML document URL from EDGAR filing index.
+
+    Tries multiple CIK candidates: provided CIK, accession-derived CIK,
+    and EDGAR submissions API lookup.
+    """
+    accession_nodash = accession.replace("-", "")
+    acc_prefix_cik = accession.split("-")[0].lstrip("0") or "0"
+
+    cik_candidates: list[str] = []
+    if cik:
+        cik_candidates.append(cik.lstrip("0") or "0")
+    cik_candidates.append(acc_prefix_cik)
+
+    response = None
+    resolved_cik = None
+    for candidate in cik_candidates:
+        response = _try_resolve_index(candidate, accession)
+        if response is not None:
+            resolved_cik = candidate
+            break
+
+    if response is None:
+        looked_up = _lookup_cik_from_accession(accession)
+        if looked_up and looked_up not in cik_candidates:
+            response = _try_resolve_index(looked_up, accession)
+            if response is not None:
+                resolved_cik = looked_up
+
+    if response is None:
+        tried = ", ".join(cik_candidates)
         raise EdgarClientError(
-            f"Could not resolve filing from index (both HTML and JSON failed): {index_url}"
+            f"無法解析報表 URL — 嘗試了 CIK: {tried}。"
+            f"請提供正確的 CIK 或直接貼上完整的 EDGAR 報表 URL。"
         )
 
+    cik_clean = resolved_cik
     html = response.text
-
     base_path = f"/Archives/edgar/data/{cik_clean}/{accession_nodash}/"
 
     htm_links = re.findall(
@@ -145,19 +172,17 @@ def resolve_filing_url(accession: str, cik: str | None = None) -> str:
     )
     if not htm_links:
         raise EdgarClientError(
-            f"No .htm documents found in filing index: {index_url}"
+            f"報表索引頁中未找到 .htm 文件：{base_path}"
         )
 
     filing_docs: list[str] = []
     for link in htm_links:
-        # Handle /ix?doc= iXBRL viewer links — extract the actual document path
         ix_match = re.search(r"/ix\?doc=(.+)$", link)
         if ix_match:
             doc_path = ix_match.group(1)
             filing_docs.append(f"https://www.sec.gov{doc_path}")
             continue
 
-        # Skip site navigation and non-filing links
         if link in ("/index.htm", "/index.html"):
             continue
         if "/searchedgar/" in link or "/edgar/searchedgar" in link:
@@ -166,15 +191,13 @@ def resolve_filing_url(accession: str, cik: str | None = None) -> str:
             continue
         if "R1.htm" in link or "R2.htm" in link:
             continue
-        # Skip exhibits
         if "-exh" in link.lower() or "exhibit" in link.lower():
             continue
 
-        # Build full URL
         if link.startswith("/Archives/"):
             full = f"https://www.sec.gov{link}"
         elif link.startswith("/"):
-            continue  # Other absolute paths are site links, not filing docs
+            continue
         elif link.startswith("http"):
             full = link
         else:
@@ -184,18 +207,16 @@ def resolve_filing_url(accession: str, cik: str | None = None) -> str:
 
     if not filing_docs:
         raise EdgarClientError(
-            f"Could not identify filing document in index: {index_url}"
+            f"無法在索引頁中找到報表文件：{base_path}"
         )
 
-    # Prefer the main 10-K document: typically named {ticker}-{date}.htm
-    # and is the first document (not _d2, _d3 which are supplementary)
     primary = filing_docs[0]
     for doc in filing_docs:
         if "_d2" not in doc and "_d3" not in doc:
             primary = doc
             break
 
-    logger.info("Resolved filing URL: %s", primary)
+    logger.info("Resolved filing URL: %s (CIK: %s)", primary, cik_clean)
     return primary
 
 

@@ -128,7 +128,7 @@ def complete(
     schema: type[BaseModel] | None = None,
     run_id: str | None = None,
     task_type: str = "agent",
-    max_tokens: int = 1024,
+    max_tokens: int = 4096,
 ) -> str | BaseModel:
     cfg = llm_config.resolve_tier(tier)
     use_json_mode = schema is not None

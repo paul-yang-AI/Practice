@@ -136,7 +136,7 @@ def verify_via_blind_critic(
         schema=CriticVerdict,
         run_id=run_id,
         task_type="agent",
-        max_tokens=64,
+        max_tokens=1024,
     )
     return result  # type: ignore[return-value]
 

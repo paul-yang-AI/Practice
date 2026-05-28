@@ -110,7 +110,7 @@ def _plan_next_action(
             schema=AgentAction,
             run_id=run_id,
             task_type="agent",
-            max_tokens=512,
+            max_tokens=4096,
         )
         return result.model_dump() if hasattr(result, "model_dump") else None
     except BudgetExceededError as exc:

@@ -127,6 +127,30 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   patterns (regex anchored to SEC standard item format); `_SECTION_NAME_MAP` covers standard 
   10-K section titles per SEC Regulation S-K, not individual filing quirks.
 
+## max_tokens_and_sec_ui: Gemini thinking budget + CIK auto-lookup + 自訂報表 UX
+
+- **Failed Path**: Three issues:
+  1. `max_tokens` too low across codebase (64–1024). Gemini 2.5/3 thinking models allocate
+     tokens for *both* reasoning and text output from the same budget — low `max_tokens` causes
+     all tokens to be consumed by thinking, returning `content=None`. This was the root cause
+     of `AllProvidersFailed` / "LLM planner unavailable" errors even after litellm upgrade.
+  2. `resolve_filing_url` extracted CIK from accession prefix — but the prefix often belongs
+     to the *filing agent* (e.g. Donnelley Financial, CIK 0000950170) not the *company*
+     (e.g. MSFT, CIK 789019). ~40%+ of custom filing lookups would fail with 404.
+  3. Custom filing UI had no CIK input field and unhelpful English-only error messages.
+- **Resolution**:
+  1. Increased `max_tokens`: `llm_router.py` default 1024→4096, `loop.py` 512→4096,
+     `verify.py` blind_critic 64→1024, `smoke_llm_models.py` 32→256. Gemini has 65K output
+     token limit — these values leave ample room for thinking + structured output.
+  2. Rewrote `resolve_filing_url` with multi-CIK-candidate strategy: tries provided CIK,
+     accession-prefix CIK, then EDGAR submissions API (`data.sec.gov/submissions/`) auto-lookup.
+     Error messages in Chinese with actionable fix suggestions.
+  3. Added CIK input field to SEC 10-K page with helper text; added contextual error messages
+     (format hints, common causes) when extraction fails.
+- **Validation**: All LLM call sites have `max_tokens` ≥ 256 (thinking-safe). CIK resolution
+  tested with MSFT (CIK 789019 via accession 0000950170-24-087843 — filing agent CIK
+  differs from company CIK). Custom filing UI shows CIK field with guidance.
+
 ## agent_reliability: v2 → v3 (budget tuning + keyword verify + error logging)
 
 - **Failed Path**: Zeabur agent runs showed `plan_failed` on all steps 1–9 within ~200ms

@@ -47,7 +47,7 @@ def main() -> None:
             resp = litellm.completion(
                 model=model,
                 messages=[{"role": "user", "content": 'Reply with JSON only: {"ok": true}'}],
-                max_tokens=32,
+                max_tokens=256,
             )
             content = (resp.choices[0].message.content or "")[:80]
             print(f"OK: {label} {model} -> {content}")
