@@ -92,8 +92,11 @@ def verify_step(
                     reason=f"Domain mismatch: expected {expected_domain}, got {actual_domain}",
                 )
 
-    if expected_keywords:
-        missing = [kw for kw in expected_keywords if kw.lower() not in lower_text]
+    all_keywords = list(expected_keywords or [])
+    if task and not all_keywords:
+        all_keywords = _extract_task_keywords(task)
+    if all_keywords:
+        missing = [kw for kw in all_keywords if kw.lower() not in lower_text]
         if missing:
             return VerifyResult(passed=False, reason=f"Keywords not found: {missing}")
 

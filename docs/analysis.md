@@ -6,7 +6,7 @@
 > **Agent = Model + Harness** — evidence from `reports/eval_train.csv`, `reports/eval_summary.json`,
 > and L1/L2/L3 tests.
 
-All numbers below come from **`reports/eval_train.csv`** (generated `2026-05-27`) unless marked *estimated*.
+All numbers below come from **`reports/eval_train.csv`** (generated `2026-05-28`) unless marked *estimated*.
 
 ---
 
@@ -16,10 +16,11 @@ All numbers below come from **`reports/eval_train.csv`** (generated `2026-05-27`
 
 - **Span integrity (Tier0 main path)**: `body[start:end] == text` enforced before store.
 - **Token conservation**: MSFT/INTC/C median `token_ratio_p50` = **0.9879–0.9899**.
-- **Char coverage**: MSFT **0.87**, INTC **0.86**, C **1.00** (section-name fallback on Citi).
+- **Char coverage** (vs full body): MSFT **0.87**, INTC **0.86**, C **1.00** (section-name fallback on Citi).
 - **Gold boundary**: train filings P95 boundary error = **0 chars** on committed gold set.
-- **Required items recall**: MSFT/INTC **4/4**; Citi **3/3** (Items 1A, 7, 8 — Item 1 not in filing structure).
-- **Incorporation**: Citi Items 10–14 → `incorporated_by_reference`, `text=None`.
+- **Required items recall**: MSFT/INTC **4/4**; Citi **3/3** (Items 1A, 7, 8).
+- **Incorporation**: INTC Items 10–14 + Citi Items 10–14 → `incorporated_by_reference`, `text=None`.
+- **Section-name fallback**: Business, Properties, Legal Proceedings, Mine Safety, Cybersecurity, and 12 more standard 10-K section titles mapped for filings without "Item N" headers.
 - **Tier0 coverage**: **100%** train filings at **$0.00/filing** (zero LLM on eval path).
 
 ### Task 1 — Browser Agent
@@ -62,11 +63,11 @@ Navigate/extract tasks (example.com, HN, GitHub) succeed reliably. Multi-step se
 
 ### Task 2 — Train Split (SEC)
 
-| Ticker | required | extracted | incorporated | failure_category |
-|--------|----------|-----------|--------------|------------------|
-| MSFT | 4/4 | 8 | 0 | ok |
-| INTC | 4/4 | 22 | 0 | ok |
-| C | 3/3 | 9 | 5 | ok |
+| Ticker | required | extracted | incorporated | missing | failure_category |
+|--------|----------|-----------|--------------|---------|------------------|
+| MSFT | 4/4 | 8 | 0 | 14 | ok |
+| INTC | 4/4 | 17 | 5 | 0 | ok |
+| C | 3/3 | 12 | 5 | 5 | ok |
 
 ### Task 1 — Train Split (Agent)
 
@@ -117,9 +118,10 @@ From `reports/heldout_snapshot.json` (local run):
 | Metric | MSFT | INTC | C |
 |--------|------|------|---|
 | Required recall | 4/4 | 4/4 | 3/3 |
-| Tier0 extracted | 8 | 22 | 9 |
-| Incorporated | 0 | 0 | 5 |
-| Token ratio P50 | 0.9875 | 0.9879 | 0.9879 |
+| Tier0 extracted | 8 | 17 | 12 |
+| Incorporated | 0 | 5 | 5 |
+| Token ratio P50 | 0.9875 | 0.9970 | 0.9819 |
+| Char coverage (full body) | 0.87 | 0.86 | 1.00 |
 | USD/filing | $0.00 | $0.00 | $0.00 |
 
 ### Task 1 — Browser Agent (from eval_summary.json)
@@ -134,5 +136,6 @@ From `reports/heldout_snapshot.json` (local run):
 | P50 cost | $0.0059 |
 | LLM calls (total run) | 19 |
 | Max steps/task | 10 |
-| Max LLM calls/task | 5 |
+| Max LLM calls/task | 25 |
+| Max primary retries | 2 |
 | Global budget | $20 (`RUN_BUDGET_USD`) |

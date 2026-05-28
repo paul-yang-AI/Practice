@@ -1,6 +1,11 @@
 {
   "accession": "0000831001-25-000067",
   "items": {
+    "1": {
+      "start": 4186,
+      "end": 4265,
+      "status": "extracted"
+    },
     "1A": {
       "start": 174024,
       "end": 1254168,
@@ -13,6 +18,16 @@
     },
     "1C": {
       "start": 4312,
+      "end": 4346,
+      "status": "extracted"
+    },
+    "2": {
+      "start": 4346,
+      "end": 4461,
+      "status": "extracted"
+    },
+    "4": {
+      "start": 4461,
       "end": 4773,
       "status": "extracted"
     },

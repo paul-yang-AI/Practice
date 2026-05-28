@@ -24,9 +24,13 @@ HEADER_RE = re.compile(
 # Section name → Item ID mapping for filings without explicit "Item N" headers.
 # Patterns require the section name to appear on its own line (standalone header).
 _SECTION_NAME_MAP: list[tuple[str, str]] = [
+    (r"\n\s*Business\s*\n", "1"),
     (r"\n\s*Risk\s+Factors\s*\n", "1A"),
     (r"\n\s*Unresolved\s+Staff\s+Comments\s*\n", "1B"),
     (r"\n\s*Cybersecurity\s*\n", "1C"),
+    (r"\n\s*Properties\s*\n", "2"),
+    (r"\n\s*Legal\s+Proceedings\s*\n", "3"),
+    (r"\n\s*Mine\s+Safety\s+Disclosures?\s*\n", "4"),
     (r"\n\s*Management.s\s+Discussion\s+and\s+Analysis\b[^\n]*\n", "7"),
     (r"\n\s*Quantitative\s+and\s+Qualitative\s+Disclosures?\s+About\s+Market\s+Risk\s*\n", "7A"),
     (r"\n\s*Financial\s+Statements\s+and\s+Supplementary\s+Data\s*\n", "8"),

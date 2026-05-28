@@ -240,18 +240,19 @@ def evaluate_filing(
         if start_err <= 5 and end_err <= 5:
             gold_matched += 1
 
+    from task2_sec.pipeline.normalize import normalize as _normalize_html
+    full_body = _normalize_html(html)
+    full_body_len = len(full_body) or 1
+
     extracted = [i for i in extraction.items if i.status == ItemStatus.EXTRACTED]
     ratios = []
-    body_len = 0
     covered = 0
     for item in extracted:
         if item.text and item.start is not None and item.end is not None:
             seg_len = item.end - item.start
             ratios.append(token_ratio(seg_len, len(item.text.strip())))
             covered += seg_len
-            body_len = max(body_len, item.end)
-    if not body_len:
-        body_len = sum(len(i.text or "") for i in extracted) or 1
+    body_len = full_body_len
 
     toc_agreement = len(extracted) / max(len([i for i in extraction.items if i.start is not None]), 1)
 

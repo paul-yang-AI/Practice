@@ -17,7 +17,8 @@ _SECTION_TITLE_RE = re.compile(
     r"Directors[,\s]+Executive|Executive\s+Compensation|Security\s+Ownership|"
     r"Certain\s+Relationships|Principal\s+Account|Exhibits?\s+and\s+Financial|"
     r"Form\s+10-K\s+Summary|Changes\s+in\s+and\s+Disagreements|Properties|"
-    r"Legal\s+Proceedings|Business)",
+    r"Legal\s+Proceedings|Mine\s+Safety|Market\s+for\s+Registrant|Other\s+Information|"
+    r"Business)",
     re.IGNORECASE,
 )
 

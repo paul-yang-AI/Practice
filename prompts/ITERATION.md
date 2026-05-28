@@ -59,3 +59,43 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
 - **Validation**: All 58 tests pass (46 unit + 12 integration); `test_agent_recovery_loop`
   and `test_verify_blind_critic_gate` confirm multi-step flow works correctly with
   recovery and Blind Critic gate. Train success rate improved from 4/6 → 6/6.
+
+## segment: v2 → v3 (TOC avoidance + page-reference upgrade + section-name generalization)
+
+- **Failed Path**: INTC 10-K has a "Form 10-K Cross-Reference Index" acting as TOC —
+  `_pick_best_start` with 3% exclusion zone was too narrow, picking TOC page references
+  (e.g. "Item 1. Business: Pages 3-4") instead of actual content sections. Items 10–14
+  had `(a)` footnote markers referencing Proxy Statement but were classified as `extracted`.
+  `_SECTION_NAME_MAP` lacked Item 1 (Business), 2 (Properties), 3 (Legal Proceedings),
+  4 (Mine Safety) — these Items failed `section_name` fallback on filings that don't use
+  "Item N" headers in the content body.
+- **Resolution**:
+  1. Widened `_pick_best_start` exclusion to 5% + prefer **first** content-area match
+  2. Added `_upgrade_short_segments`: post-merge filter detects page-reference-only items
+     (<500 chars, just "Pages X-Y" text) and replaces with `section_name` matches
+  3. Added `_is_page_reference_only` heuristic (strip page refs, item headers, part labels)
+  4. Extended `_SECTION_NAME_MAP` with Business→1, Properties→2, Legal Proceedings→3,
+     Mine Safety→4; aligned `_SECTION_TITLE_RE` in `metrics.py`
+  5. Enhanced `incorporation.py`: `(a)`/`(b)` footnote marker detection for Proxy Statement
+     references (INTC-style short items ending with `(a)`)
+- **Validation**: 65 tests pass; INTC Items 10–14 → `incorporated_by_reference`;
+  Citi Items 10–14 → `incorporated_by_reference`; Citi Item 1 found via section_name
+  (was `missing`). `char_coverage` now uses full body length (honest metric).
+
+## agent_reliability: v2 → v3 (budget tuning + keyword verify + error logging)
+
+- **Failed Path**: Zeabur agent runs showed `plan_failed` on all steps 1–9 within ~200ms
+  each — LLM was never called because `max_llm_calls_agent=8` was exhausted by retries
+  (`_MAX_PRIMARY_RETRIES=3`). Error messages were uninformative (`logger.debug`).
+  `verify_step` had `_extract_task_keywords` defined but never wired in — L0 verify only
+  checked page-not-empty, allowing `done=true` on wrong pages (silent failure risk).
+- **Resolution**:
+  1. Reduced `_MAX_PRIMARY_RETRIES` 3→2 (Plan: retry 1 + fallback 1)
+  2. Increased `max_llm_calls_agent` 8→25 (real capacity for 10-step tasks)
+  3. Increased `max_tokens` 256→512 for agent planning
+  4. Upgraded error logging to `logger.error` with `type(exc).__name__` detail
+  5. Wired `_extract_task_keywords` into `verify_step`: extracts domain names and
+     quoted strings from task description, checks presence in page text
+  6. Disabled OpenRouter fallback (`LLM_FALLBACK_ENABLED=false`) — focus on Gemini primary
+- **Validation**: 65 tests pass; Gemini Tier1+Tier2 smoke OK; `AllProvidersFailed` now
+  includes root cause in message for deployment debugging.

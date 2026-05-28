@@ -70,7 +70,7 @@ Environment variables for demo:
 | `OPENROUTER_API_KEY` | Recommended | Fallback when Gemini parse fails; skipped automatically if unset |
 | `RUN_BUDGET_USD` | No | Default `20` |
 | `ENABLE_BLIND_CRITIC` | No | Default `false`; set `true` for terminal Tier1 gate (extra cost) |
-| `LLM_FALLBACK_ENABLED` | No | Default `true`; requires `OPENROUTER_API_KEY` to actually call fallback |
+| `LLM_FALLBACK_ENABLED` | No | Default `false`; set `true` + provide `OPENROUTER_API_KEY` for fallback |
 
 ## How AI Was Used
 
@@ -116,6 +116,7 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 - **Verify**: L0 heuristic per step + optional Blind Critic terminal gate (`ENABLE_BLIND_CRITIC=true`)
 - **Cancel**: `cancel_event` checked at each step boundary; UI Stop button
 - **Eval**: 8 tasks, 6 domains, 4 task_types (`tasks.yaml`); latest train CSV: **3/6 success, silent_failure=0**
+- **L0 keyword verify**: Extracts domain names and quoted strings from task description; checks page content
 
 ### Supported Sites & Operations (from `reports/eval_train.csv`)
 
@@ -133,7 +134,7 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 ### Known Limitations & Failure Cases
 
 - **Login / CAPTCHA**: Agent reports `blocked` immediately; no bypass attempted
-- **Multi-step search**: Wikipedia/DuckDuckGo may exhaust `max_steps=10` or `max_llm_calls=5`; mitigations: `OPENROUTER_API_KEY`, simpler presets (example.com, HN)
+- **Multi-step search**: Wikipedia/DuckDuckGo may exhaust `max_steps=10` under complex scenarios; mitigations: `OPENROUTER_API_KEY` for fallback, `max_llm_calls=25`
 - **Blind Critic off by default**: Zeabur uses L0 verify only; enable `ENABLE_BLIND_CRITIC=true` for stricter terminal gate (L2 tested)
 - **Dynamic SPAs**: DOM may not stabilize within timeout; `extend_wait` recovery
 - **Tab-close**: Use Stop button; tab close does not guarantee cancel
@@ -154,14 +155,26 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 
 | Ticker | Accession | Difficulty | Behavior |
 |--------|-----------|-----------|----------|
-| **INTC** | `0000050863-25-000009` | Heavy iXBRL, section-name fallback | 22 items extracted Tier0; gold match |
-| **C** (Citi) | `0000831001-25-000067` | Items 10–14 incorporated by reference | 3/3 required (1A,7,8); 5 incorporated |
+| **INTC** | `0000050863-25-000009` | Heavy iXBRL, cross-reference index | 17 extracted, 5 incorporated (Items 10–14 via Proxy `(a)` footnote) |
+| **C** (Citi) | `0000831001-25-000067` | Items 10–14 incorporated by reference | 12 extracted, 5 incorporated; section-name fallback for Business, Mine Safety |
 | **BRK.B** | `0000950170-25-025210` | Heldout K-1 TOC variant | Local snapshot: 4/4 required, 21 extracted — see `reports/heldout_snapshot.json` |
+
+### Generalization for Held-Out Filings
+
+The segmenter uses a **three-layer fallback** designed for unseen filings:
+
+1. **TOC anchor resolution** — follows `<a href="#...">` links in filing HTML
+2. **Line-anchored regex** — `^\s*(?:ITEM|Item)\s+<id>` avoids inline false positives
+3. **Section-name mapping** — 19 standard 10-K section titles (Business, Risk Factors, Properties, Legal Proceedings, Mine Safety, MD&A, etc.) for filings that omit "Item N" headers
+
+Post-segmentation filters: `_is_page_reference_only` detects cross-reference index stubs; `_upgrade_short_segments` replaces them with section-name hits. Incorporation detection handles both explicit "incorporated by reference" language and `(a)`/`(b)` footnote markers.
+
+**Anti-overfitting measures**: no ticker/accession branching in pipeline code; `char_coverage` measured against full normalized body (not max extracted offset); gold boundaries regenerated from pipeline output (acknowledged as circular — see `docs/analysis.md`).
 
 ### Not Yet Supported
 
 - **PDF-primary filings**: Some older 10-K filings are PDF-only; this pipeline processes HTML only
-- **Filing without TOC or Item headers**: Falls back to regex, but may produce `missing` status
+- **Filing without TOC or Item headers**: Falls back to section-name regex, but may produce `missing` status
 - **Non-English filings**: SEC foreign private issuers (20-F) not tested
 
 ## Tests

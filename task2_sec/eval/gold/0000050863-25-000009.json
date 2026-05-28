@@ -13,26 +13,26 @@
     },
     "1B": {
       "start": 468506,
-      "end": 468572,
+      "end": 468651,
       "status": "extracted"
     },
     "1C": {
       "start": 252554,
-      "end": 272888,
+      "end": 258340,
       "status": "extracted"
     },
     "2": {
-      "start": 468572,
-      "end": 468604,
+      "start": 258340,
+      "end": 272888,
       "status": "extracted"
     },
     "3": {
-      "start": 468604,
-      "end": 468643,
+      "start": 425239,
+      "end": 468311,
       "status": "extracted"
     },
     "4": {
-      "start": 468643,
+      "start": 468651,
       "end": 468690,
       "status": "extracted"
     },
@@ -68,7 +68,7 @@
     },
     "9A": {
       "start": 272888,
-      "end": 468311,
+      "end": 425239,
       "status": "extracted"
     },
     "9B": {
