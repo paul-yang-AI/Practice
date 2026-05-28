@@ -135,6 +135,36 @@ def check_pdf_detection() -> bool:
         return False
 
 
+def check_agent_verify() -> bool:
+    """Verify navigation vs terminal outcome logic without browser."""
+    print("[Agent] Testing verify layer...", end=" ")
+    try:
+        from task1_agent.agent.verify import verify_navigation, verify_task_outcome
+
+        nav = verify_navigation(
+            url="https://en.wikipedia.org/wiki/Main_Page",
+            page_text="Wikipedia Main Page " * 10,
+            start_url="https://en.wikipedia.org",
+        )
+        if not nav.passed:
+            print(f"FAIL — navigation: {nav.reason}")
+            return False
+        outcome = verify_task_outcome(
+            task="Search for 'Alan Turing'",
+            url="https://en.wikipedia.org/wiki/Alan_Turing",
+            page_text="Alan Turing mathematician " * 5,
+            start_url="https://en.wikipedia.org",
+        )
+        if not outcome.passed:
+            print(f"FAIL — outcome: {outcome.reason}")
+            return False
+        print("OK")
+        return True
+    except Exception as exc:
+        print(f"FAIL — {exc}")
+        return False
+
+
 def main() -> None:
     load_env()
     print("=" * 60)
@@ -146,6 +176,7 @@ def main() -> None:
         "SEC Pipeline": check_sec_pipeline(),
         "Agent Planning": check_agent_plan(),
         "PDF Detection": check_pdf_detection(),
+        "Agent Verify": check_agent_verify(),
     }
 
     print()

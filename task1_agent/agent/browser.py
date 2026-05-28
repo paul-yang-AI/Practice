@@ -329,6 +329,7 @@ class PlaywrightExecutor:
             page_text=f"{title}\n{body_text}",
             task=task,
             start_url=start_url,
+            check_task_keywords=False,
         )
 
         return StepResult(

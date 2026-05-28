@@ -18,7 +18,7 @@ def _success_executor(action: str, context: dict) -> StepResult:
         step_index=context.get("step", 0),
         action=action,
         url="https://example.com",
-        page_text="Example Domain",
+        page_text="Example Domain\nThis domain is for use in illustrative examples.",
         a11y_tree="<root><heading>Example Domain</heading></root>",
         verify=VerifyResult(passed=True),
     )

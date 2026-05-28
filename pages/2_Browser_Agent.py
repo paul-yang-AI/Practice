@@ -256,6 +256,8 @@ if run_id:
                 action_display = f"導航 → {action[9:]}"
             elif action == "task_complete":
                 action_display = "任務完成"
+            elif action == "task_complete_rejected":
+                action_display = "任務完成但結果驗證失敗"
             elif action == "plan_failed":
                 action_display = "LLM 規劃失敗"
             elif action.startswith("recovery:"):
@@ -340,7 +342,8 @@ with col_info1:
 7. **抽取** → 完成後抽取任務特定結果
 
 **安全防護：**
-- 每任務最多 10 步
+- 每任務 10–15 步（search/form 較多）
+- 完成時驗證結果是否在頁面中（防 LLM 幻覺）
 - 最多 25 次 LLM 呼叫（預算控制）
 - 分類式恢復（每次失敗最多 2 種策略）
 - 成本熔斷器（$0.50/次 上限）

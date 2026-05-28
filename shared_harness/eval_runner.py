@@ -349,6 +349,8 @@ def _classify_agent_failure(status: str, error: str | None) -> str:
         return "recovery_exhausted"
     if "max steps" in err:
         return "max_steps"
+    if "outcome verification" in err or "not found in page" in err or "task terms not" in err:
+        return "outcome_verify_fail"
     if "planner unavailable" in err or "err_name_not_resolved" in err or "timeout" in err:
         return "infrastructure"
     return "reasoning_failure"

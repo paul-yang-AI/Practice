@@ -263,10 +263,113 @@ def search_filings(
     form_type: str = "10-K",
     max_results: int = 10,
 ) -> list[dict]:
-    """Search EDGAR EFTS for filings by company name or ticker.
+    """Search for SEC filings by ticker, CIK, or company name.
 
-    Returns list of dicts with keys: company, ticker, cik, accession, filed, form.
+    Resolution order (generic, not ticker-specific hardcoding):
+    1. Ticker-like query → SEC company_tickers.json → submissions API (latest form)
+    2. EDGAR EFTS full-text search fallback
     """
+    query = company.strip()
+    if not query:
+        return []
+
+    results: list[dict] = []
+    seen: set[str] = set()
+
+    cik = resolve_cik_from_ticker(query)
+    if cik:
+        sub = _latest_filing_from_submissions(cik, form_type)
+        if sub and sub["accession"] not in seen:
+            results.append(sub)
+            seen.add(sub["accession"])
+
+    for hit in _search_filings_efts(query, form_type, max_results):
+        if hit["accession"] not in seen:
+            results.append(hit)
+            seen.add(hit["accession"])
+
+    return results[:max_results]
+
+
+_TICKER_QUERY_RE = re.compile(r"^[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?$")
+_COMPANY_TICKERS_CACHE: dict | None = None
+_COMPANY_TICKERS_LOCK = threading.Lock()
+
+
+def _load_company_tickers() -> dict:
+    """Fetch SEC company_tickers.json (cached in-process)."""
+    global _COMPANY_TICKERS_CACHE
+    with _COMPANY_TICKERS_LOCK:
+        if _COMPANY_TICKERS_CACHE is not None:
+            return _COMPANY_TICKERS_CACHE
+        import json as _json
+
+        url = "https://www.sec.gov/files/company_tickers.json"
+        try:
+            resp = _http_get(url)
+            _COMPANY_TICKERS_CACHE = _json.loads(resp.text)
+        except Exception as exc:
+            logger.warning("company_tickers.json fetch failed: %s", exc)
+            _COMPANY_TICKERS_CACHE = {}
+        return _COMPANY_TICKERS_CACHE
+
+
+def resolve_cik_from_ticker(query: str) -> str | None:
+    """Resolve CIK from a ticker symbol using SEC company_tickers.json."""
+    q = query.strip().upper()
+    if not _TICKER_QUERY_RE.match(q):
+        return None
+    data = _load_company_tickers()
+    for entry in data.values():
+        if str(entry.get("ticker", "")).upper() == q:
+            return str(entry.get("cik_str", "")).lstrip("0") or "0"
+    return None
+
+
+def _latest_filing_from_submissions(cik: str, form_type: str = "10-K") -> dict | None:
+    """Return the most recent filing of form_type for a CIK via submissions API."""
+    import json as _json
+
+    cik_clean = cik.lstrip("0") or "0"
+    padded = cik_clean.zfill(10)
+    url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+    try:
+        resp = _http_get(url)
+        data = _json.loads(resp.text)
+    except Exception as exc:
+        logger.warning("Submissions lookup failed for CIK %s: %s", cik, exc)
+        return None
+
+    name = data.get("name", "")
+    tickers = data.get("tickers", [])
+    ticker = tickers[0] if tickers else ""
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accessions = recent.get("accessionNumber", [])
+    dates = recent.get("filingDate", [])
+
+    target = form_type.upper().replace(" ", "")
+    for form, accession, filed in zip(forms, accessions, dates):
+        if form.upper().replace(" ", "") == target:
+            return {
+                "company": name,
+                "ticker": ticker,
+                "cik": cik_clean,
+                "accession": accession,
+                "filed": filed,
+                "form": form,
+                "source": "submissions",
+            }
+    return None
+
+
+def _search_filings_efts(
+    company: str,
+    form_type: str = "10-K",
+    max_results: int = 10,
+) -> list[dict]:
+    """Search EDGAR EFTS for filings by company name or free text."""
     import json as _json
     from urllib.parse import quote
 
@@ -300,7 +403,6 @@ def search_filings(
     results: list[dict] = []
     for hit in hits[:max_results]:
         src = hit.get("_source", {})
-        accession_raw = src.get("file_num", "") or hit.get("_id", "")
         entity = src.get("entity_name", "")
         filed = src.get("file_date", "")
         form = src.get("form_type", form_type)
@@ -311,15 +413,21 @@ def search_filings(
             continue
 
         tickers = src.get("tickers", "")
+        if isinstance(tickers, list):
+            ticker = tickers[0] if tickers else ""
+        else:
+            ticker = str(tickers)
+
         cik = str(src.get("entity_id", ""))
 
         results.append({
             "company": entity,
-            "ticker": tickers,
+            "ticker": ticker,
             "cik": cik,
             "accession": accession,
             "filed": filed,
             "form": form,
+            "source": "efts",
         })
 
     return results
@@ -363,7 +471,8 @@ def find_proxy_filing(cik: str) -> dict | None:
 
 
 def reset_throttle_for_tests() -> None:
-    global _last_request_at, _user_agent_validated
+    global _last_request_at, _user_agent_validated, _COMPANY_TICKERS_CACHE
     with _lock:
         _last_request_at = 0.0
     _user_agent_validated = False
+    _COMPANY_TICKERS_CACHE = None

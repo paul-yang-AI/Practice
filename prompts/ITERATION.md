@@ -235,3 +235,13 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
      items show direct link to latest proxy accession
   5. **README Known Limitations** expanded: ephemeral SQLite, iframe/shadow DOM, gold circularity
 - **Validation**: e2e smoke adds segment_method + PDF detection checks.
+
+### `agent_verify_fix` (2026-05-28)
+- **Failed path**: Step 0 verify used quoted task terms on landing pages → Wiki/DDG stuck in
+  recovery; `task_complete` trusted LLM `result` without page cross-check.
+- **Resolution** (generic — no site hardcoding):
+  1. Intermediate steps skip task keywords; step 0 uses navigation-only verify
+  2. `verify_task_outcome()` at done=true: quoted terms + extracted result in page/JSON
+  3. `infer_max_steps()` from task verbs (search/form 15, extract 12, default 10)
+  4. EDGAR search: ticker → company_tickers.json → submissions, then EFTS fallback
+- **Validation**: `tests/unit/test_agent_verify.py`.

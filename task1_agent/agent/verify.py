@@ -66,10 +66,13 @@ def verify_step(
     start_url: str = "",
     expected_url_fragment: str | None = None,
     expected_keywords: list[str] | None = None,
+    check_task_keywords: bool = True,
 ) -> VerifyResult:
     """L0 heuristic check after each action step.
 
     Generic verification — no hardcoded site-specific logic.
+    Set check_task_keywords=False during navigation/intermediate steps so
+    goal phrases (e.g. quoted search terms) are validated only at task completion.
     """
     if not url or url == "about:blank":
         return VerifyResult(passed=False, reason="Page not loaded (blank URL)")
@@ -93,7 +96,7 @@ def verify_step(
                 )
 
     all_keywords = list(expected_keywords or [])
-    if task and not all_keywords:
+    if check_task_keywords and task and not all_keywords:
         all_keywords = _extract_task_keywords(task)
     if all_keywords:
         missing = [kw for kw in all_keywords if kw.lower() not in lower_text]
@@ -106,9 +109,100 @@ def verify_step(
     return VerifyResult(passed=True)
 
 
-def verify_navigation(*, url: str, page_text: str, task: str, start_url: str) -> VerifyResult:
-    """Verify that initial navigation succeeded (step 0)."""
-    return verify_step(url=url, page_text=page_text, task=task, start_url=start_url)
+def verify_navigation(*, url: str, page_text: str, start_url: str) -> VerifyResult:
+    """Verify that initial navigation succeeded (step 0) — domain + load only."""
+    return verify_step(
+        url=url,
+        page_text=page_text,
+        start_url=start_url,
+        check_task_keywords=False,
+    )
+
+
+def verify_extracted_result(extracted_result: str, page_text: str) -> VerifyResult:
+    """Check that a claimed extraction appears in visible page content (anti-hallucination)."""
+    result_clean = extracted_result.strip()
+    if not result_clean:
+        return VerifyResult(passed=False, reason="Empty extracted result")
+
+    lower_page = page_text.lower()
+    lower_result = result_clean.lower()
+    if lower_result in lower_page:
+        return VerifyResult(passed=True)
+
+    compact_page = re.sub(r"\s+", " ", lower_page)
+    compact_result = re.sub(r"\s+", " ", lower_result)
+    if compact_result in compact_page:
+        return VerifyResult(passed=True)
+
+    tokens = [t for t in re.findall(r"[\w./@-]+", result_clean) if len(t) >= 6]
+    if tokens and any(t.lower() in lower_page for t in tokens):
+        return VerifyResult(passed=True)
+
+    stripped = page_text.strip()
+    if stripped.startswith("{"):
+        try:
+            import json
+
+            blob = json.dumps(json.loads(stripped), ensure_ascii=False).lower()
+            if compact_result in blob or any(t.lower() in blob for t in tokens):
+                return VerifyResult(passed=True)
+        except Exception:
+            pass
+
+    return VerifyResult(passed=False, reason="Extracted result not found in page content")
+
+
+def _quoted_terms(task: str) -> list[str]:
+    return re.findall(r"['\"]([^'\"]+)['\"]", task)
+
+
+def _term_on_page(term: str, page_text: str, url: str) -> bool:
+    lower = page_text.lower()
+    url_lower = url.lower()
+    term_lower = term.lower()
+    if term_lower in lower or term_lower.replace(" ", "_") in url_lower:
+        return True
+    words = [w for w in term.split() if len(w) > 3]
+    if len(words) >= 2:
+        return sum(1 for w in words if w.lower() in lower) >= max(1, len(words) // 2)
+    return False
+
+
+def verify_task_outcome(
+    *,
+    task: str,
+    url: str,
+    page_text: str,
+    extracted_result: str = "",
+    start_url: str = "",
+) -> VerifyResult:
+    """Terminal verification when the planner declares done=true."""
+    if extracted_result.strip():
+        ext = verify_extracted_result(extracted_result, page_text)
+        if not ext.passed:
+            return ext
+    else:
+        min_len = 50 if "extract" in task.lower() else 15
+        if len(page_text.strip()) < min_len:
+            return VerifyResult(passed=False, reason="Final page content too short")
+
+    quoted = _quoted_terms(task)
+    if quoted:
+        if not any(_term_on_page(q, page_text, url) for q in quoted):
+            return VerifyResult(passed=False, reason=f"Task terms not reflected on page: {quoted}")
+
+    if start_url:
+        expected_domain = urlparse(start_url).netloc.replace("www.", "")
+        actual_domain = urlparse(url).netloc.replace("www.", "")
+        if expected_domain and actual_domain:
+            if expected_domain != actual_domain and not actual_domain.endswith(expected_domain):
+                return VerifyResult(
+                    passed=False,
+                    reason=f"Final URL domain mismatch: expected {expected_domain}, got {actual_domain}",
+                )
+
+    return VerifyResult(passed=True)
 
 
 def verify_via_blind_critic(

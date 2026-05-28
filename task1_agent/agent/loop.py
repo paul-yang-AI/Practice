@@ -16,11 +16,23 @@ from task1_agent.agent.recovery import (
     classify_failure,
     get_next_strategy,
 )
-from task1_agent.agent.verify import VerifyResult, blind_critic_enabled, verify_step, verify_via_blind_critic
+from task1_agent.agent.verify import VerifyResult, blind_critic_enabled, verify_step, verify_task_outcome, verify_via_blind_critic
 
 logger = logging.getLogger(__name__)
 
-MAX_STEPS = 10
+MAX_STEPS_DEFAULT = 10
+MAX_STEPS_SEARCH = 15
+MAX_STEPS_EXTRACT = 12
+
+
+def infer_max_steps(task_description: str) -> int:
+    """Heuristic step budget from task wording — generic, not site-specific."""
+    t = task_description.lower()
+    if any(w in t for w in ("search", "find", "form", "submit", "fill")):
+        return MAX_STEPS_SEARCH
+    if any(w in t for w in ("extract", "navigate", "verify", "multiple")):
+        return MAX_STEPS_EXTRACT
+    return MAX_STEPS_DEFAULT
 
 
 @dataclass
@@ -55,6 +67,7 @@ def _plan_next_action(
     a11y_tree: str,
     step_index: int,
     run_id: str,
+    max_steps: int = MAX_STEPS_DEFAULT,
 ) -> dict | None:
     """Use LLM Tier1 to plan the next browser action.
 
@@ -96,7 +109,7 @@ def _plan_next_action(
                 f"CURRENT URL: {current_url}\n\n"
                 f"PAGE CONTENT (first 2000 chars):\n{page_snippet}\n\n"
                 f"ACCESSIBILITY TREE (compressed):\n{tree_snippet}\n\n"
-                f"STEP: {step_index} of {MAX_STEPS}\n\n"
+                f"STEP: {step_index} of {max_steps}\n\n"
                 "Plan the next action as JSON: {done, action, selector, value, reasoning, result}"
             ),
         },
@@ -141,9 +154,10 @@ def run(
     result = RunResult(run_id=run_id)
 
     executor = execute_action or _noop_executor
+    max_steps = infer_max_steps(task_description)
 
     try:
-        for step_idx in range(MAX_STEPS):
+        for step_idx in range(max_steps):
             if cancel_event and cancel_event.is_set():
                 result.status = "cancelled"
                 break
@@ -168,6 +182,7 @@ def run(
                     executor=executor,
                     cancel_event=cancel_event,
                     prev_step=result.steps[-1] if result.steps else None,
+                    max_steps=max_steps,
                 )
 
             result.steps.append(step)
@@ -192,9 +207,13 @@ def run(
                 break
 
             # Check if LLM declared task complete (step 1+)
-            if step.action == "task_complete":
+            if step.action in ("task_complete", "task_complete_rejected"):
                 result.final_url = step.url
-                result.status = "success"
+                if step.verify.passed:
+                    result.status = "success"
+                else:
+                    result.status = "failed"
+                    result.error = step.verify.reason or "Task outcome verification failed"
                 break
 
             if step.verify.passed:
@@ -291,6 +310,7 @@ def _execute_planned_step(
     executor: "ActionExecutor",
     cancel_event: threading.Event | None,
     prev_step: StepResult | None,
+    max_steps: int = MAX_STEPS_DEFAULT,
 ) -> StepResult:
     """Use LLM to plan and execute the next action."""
     prev_url = prev_step.url if prev_step else ""
@@ -298,7 +318,7 @@ def _execute_planned_step(
     prev_tree = prev_step.a11y_tree if prev_step else ""
 
     plan = _plan_next_action(
-        task_description, prev_url, prev_text, prev_tree, step_index, run_id
+        task_description, prev_url, prev_text, prev_tree, step_index, run_id, max_steps
     )
 
     if plan is None:
@@ -314,16 +334,23 @@ def _execute_planned_step(
         )
 
     if plan.get("done"):
+        extracted = plan.get("result", "") or ""
+        outcome = verify_task_outcome(
+            task=task_description,
+            url=prev_url,
+            page_text=prev_text,
+            extracted_result=extracted,
+            start_url=start_url,
+        )
         step = StepResult(
             step_index=step_index,
-            action="task_complete",
+            action="task_complete" if outcome.passed else "task_complete_rejected",
             url=prev_url,
             page_text=prev_text,
             a11y_tree=prev_tree,
-            verify=VerifyResult(passed=True),
+            verify=outcome,
         )
-        # Store extracted result from LLM
-        step.extracted_result = plan.get("result", "")
+        step.extracted_result = extracted
         return step
 
     action_desc = f"{plan.get('action', 'none')}:{plan.get('selector', '') or plan.get('value', '')}"

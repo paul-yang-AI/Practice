@@ -45,12 +45,24 @@ def _make_failing_then_success_executor(fail_count: int = 2):
 def test_agent_recovery_succeeds_after_retry() -> None:
     run_id = create_run("agent")
     executor = _make_failing_then_success_executor(fail_count=1)
-    result = run(
-        task_description="Navigate to target page",
-        start_url="https://example.com",
-        run_id=run_id,
-        execute_action=executor,
-    )
+
+    def _plan_done(*args, **kwargs):
+        return {
+            "done": True,
+            "action": "none",
+            "result": "Target content found",
+            "selector": "",
+            "value": "",
+            "reasoning": "ok",
+        }
+
+    with patch("task1_agent.agent.loop._plan_next_action", side_effect=_plan_done):
+        result = run(
+            task_description="Navigate to target page",
+            start_url="https://example.com",
+            run_id=run_id,
+            execute_action=executor,
+        )
     assert result.status == "success"
 
 
