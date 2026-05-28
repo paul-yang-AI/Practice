@@ -114,8 +114,29 @@ class PlaywrightExecutor:
         except Exception:
             return ""
 
+    _DOWNLOAD_EXTENSIONS = frozenset({
+        ".pdf", ".zip", ".gz", ".tar", ".exe", ".dmg",
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".csv", ".tsv", ".parquet",
+    })
+
+    def _is_download_url(self, url: str) -> bool:
+        from urllib.parse import urlparse
+        path = urlparse(url).path.lower()
+        return any(path.endswith(ext) for ext in self._DOWNLOAD_EXTENSIONS)
+
     def _do_navigate(self, step_index: int, task: str, start_url: str) -> StepResult:
         """Navigate to start_url and observe page state."""
+        if self._is_download_url(start_url):
+            return StepResult(
+                step_index=step_index,
+                action=f"navigate:{start_url}",
+                url="about:blank",
+                error=f"URL 指向可下載檔案（非網頁），無法在瀏覽器中開啟：{start_url}",
+                verify=VerifyResult(passed=False, reason="download_url_detected"),
+                failure_type=FailureType.CAPTCHA_OR_LOGIN,
+            )
+
         page = self.page
         if step_index == 0 and start_url:
             page.goto(start_url, wait_until="domcontentloaded", timeout=self._timeout_ms)
@@ -143,6 +164,15 @@ class PlaywrightExecutor:
         elif action_type == "press_key":
             page.keyboard.press(value or "Enter")
         elif action_type == "navigate":
+            if value and self._is_download_url(value):
+                return StepResult(
+                    step_index=step_index,
+                    action=action_desc,
+                    url=self._safe_url(),
+                    error=f"URL 指向可下載檔案：{value}",
+                    verify=VerifyResult(passed=False, reason="download_url_detected"),
+                    failure_type=FailureType.CAPTCHA_OR_LOGIN,
+                )
             if value:
                 page.goto(value, wait_until="domcontentloaded", timeout=self._timeout_ms)
         elif action_type == "none":

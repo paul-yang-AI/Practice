@@ -11,8 +11,8 @@ def fetch_filing_html(
     *,
     cik: str | None = None,
     force_refresh: bool = False,
-) -> str:
-    """Return filing HTML; cached at task2_sec/eval/cache/{accession}.html."""
+) -> tuple[str, str | None]:
+    """Return (filing_html, resolved_cik); cached at task2_sec/eval/cache/{accession}.html."""
     return edgar_client.fetch_filing_html(
         accession, url=url, cik=cik, force_refresh=force_refresh
     )

@@ -132,10 +132,9 @@ start_url = st.text_input(
 st.session_state["agent_task_text"] = task
 st.session_state["agent_url_text"] = start_url
 
-col1, col2, col3 = st.columns([2, 1, 1])
+col1, col2 = st.columns([3, 1])
 submit = col1.button("🚀 執行任務", type="primary", use_container_width=True)
-refresh = col2.button("🔄 刷新", use_container_width=True)
-stop = col3.button("⏹️ 停止", type="secondary", use_container_width=True)
+stop = col2.button("⏹️ 停止", type="secondary", use_container_width=True)
 
 if "agent_run_id" not in st.session_state:
     st.session_state["agent_run_id"] = None
@@ -171,20 +170,21 @@ if submit:
 
         thread = threading.Thread(target=_run_agent, daemon=True)
         thread.start()
+        st.session_state["agent_auto_refresh"] = True
         st.success(f"✅ 任務已提交！執行 ID：`{run_id[:8]}…`")
-        st.info("代理正在背景執行中，請點擊 **🔄 刷新** 查看進度。")
 
 if stop:
     cancel = st.session_state.get("agent_cancel")
     if cancel and not cancel.is_set():
         cancel.set()
+        st.session_state["agent_auto_refresh"] = False
         st.warning("⏹️ 已發送停止訊號，任務將在下一步邊界取消。")
     else:
         st.info("目前沒有進行中的任務。")
 
-# Results display
+# Results display — always show if we have a run_id
 run_id = st.session_state.get("agent_run_id")
-if run_id and (refresh or submit):
+if run_id:
     st.divider()
     status = _get_run_status(run_id)
 
@@ -295,7 +295,12 @@ if run_id and (refresh or submit):
             mime="application/json",
         )
     elif status == "running":
-        st.info("⏳ 任務執行中… 請點擊 **🔄 刷新** 查看進度。")
+        st.info("⏳ 任務執行中…自動刷新中。")
+
+    if status in ("running", "queued"):
+        st.session_state["agent_auto_refresh"] = True
+    elif status in ("success", "failed", "blocked", "cancelled"):
+        st.session_state["agent_auto_refresh"] = False
 
 st.divider()
 
@@ -334,8 +339,14 @@ with col_info2:
 
 **已知限制：**
 - 🚫 無法繞過登入/CAPTCHA
+- 🚫 PDF / 檔案下載型 URL
 - ⚠️ 複雜多步驟表單（不穩定）
 - ⚠️ 重 JS SPA 可能逾時
 - ⚠️ 地理限制內容
 - ⚠️ 需要有效的 LLM API Key
 """)
+
+# Auto-refresh while agent is running
+if st.session_state.get("agent_auto_refresh"):
+    time.sleep(3)
+    st.rerun()

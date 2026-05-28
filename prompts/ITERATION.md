@@ -194,3 +194,28 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   6. Disabled OpenRouter fallback (`LLM_FALLBACK_ENABLED=false`) — focus on Gemini primary
 - **Validation**: 65 tests pass; Gemini Tier1+Tier2 smoke OK; `AllProvidersFailed` now
   includes root cause in message for deployment debugging.
+
+### `ux_polish` (2026-05-28)
+- **Failed path**: Post-deployment testing revealed 9 issues: Agent still failing (PDF URL crash),
+  evaluation dashboard showing misleading success rates, SEC tab-switching state leaks, Browser
+  Agent requiring manual refresh, incorporated-by-reference items lacking context, CIK not propagating
+  back from auto-resolution, and SEC item content rendered as plain text without structure.
+- **Resolution**:
+  1. **Eval honesty**: `evaluate_agent_task` now checks `navigate` tasks against expected domain;
+     `silent_failure` category catches tasks that claim success without verified output
+  2. **Auto-refresh**: Browser Agent page auto-reruns every 3s while task is running/queued;
+     refresh button removed; `agent_auto_refresh` session state flag controls the loop
+  3. **PDF/download URL detection**: `_is_download_url()` checks file extension before `page.goto()`;
+     returns descriptive error instead of Playwright crash; covers `.pdf`, `.zip`, `.xlsx`, etc.
+  4. **Homepage redesign**: Replaced metrics-heavy landing page with design document layout:
+     architecture cards, design decisions, pipeline flow diagrams, evaluation tier table
+  5. **SEC item rendering**: `_format_sec_text` now detects bullet lists (`•/-/*`), numbered lists,
+     tabular data (3+ columns separated by whitespace), and ALL-CAPS section headers
+  6. **Incorporated-by-reference UX**: Rich card with EDGAR DEF 14A search link, detected
+     reference text preview, and explanation of the SEC convention
+  7. **CIK propagation**: `resolve_filing_url` and `fetch_filing_html` now return `(url, cik)`
+     tuple; UI displays resolved CIK even when user only provided accession number
+- **Key insight**: LLM-as-unstable-engine principle applies to UX too — every user-facing state
+  transition must be validated, not just LLM outputs. The Browser Agent's "success" status was
+  trusted without verifying the final URL matched the expected domain.
+- **Validation**: unit tests, integration tests, e2e smoke test all pass locally.

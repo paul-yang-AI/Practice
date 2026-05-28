@@ -104,7 +104,22 @@ def _render_item(item) -> None:
     elif item.status == ItemStatus.INCORPORATED_BY_REFERENCE:
         with st.expander(f"{icon} {title} — 合併引用", expanded=False):
             st.progress(item.confidence, text=f"信心度：{item.confidence:.0%}")
-            st.info("此項目透過合併引用方式，引自公司的委託書（Proxy Statement）。")
+            st.markdown(
+                '<div style="background: #eff6ff; border: 1px solid #bfdbfe; '
+                'border-radius: 8px; padding: 0.8rem 1rem; margin: 0.3rem 0;">'
+                "<strong>📎 合併引用（Incorporated by Reference）</strong><br>"
+                '<span style="font-size: 0.88rem; color: #444; line-height: 1.7;">'
+                "此項目的完整內容引自公司的委託書（Proxy Statement / DEF 14A）或其他文件，"
+                "而非直接列載於 10-K 正文中。此做法符合 SEC 規範。<br>"
+                "完整內容可在 "
+                '<a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=DEF+14A" '
+                'target="_blank">EDGAR DEF 14A 搜尋</a> 查閱。</span></div>',
+                unsafe_allow_html=True,
+            )
+            if item.text:
+                with st.container():
+                    st.caption("偵測到的引用文字：")
+                    st.code(item.text[:500], language=None)
             if item.warnings:
                 for w in item.warnings:
                     st.caption(f"📋 {w}")
@@ -141,23 +156,69 @@ def _is_page_reference_only(text: str) -> bool:
 
 
 def _format_sec_text(text: str) -> str:
-    """Convert raw SEC text into basic HTML with paragraph breaks and headers."""
+    """Convert raw SEC text into HTML with paragraph breaks, headers, lists, and basic tables."""
     import html as html_mod
+    import re
 
     lines = text.strip().split("\n")
     parts: list[str] = []
+    in_table = False
+
     for line in lines:
         stripped = line.strip()
+
         if not stripped:
+            if in_table:
+                parts.append("</table>")
+                in_table = False
             parts.append("<br>")
             continue
+
+        # Detect simple tabular rows (multiple columns separated by 2+ spaces or tabs)
+        cols = re.split(r"  {2,}|\t{1,}", stripped)
+        if len(cols) >= 3 and not stripped.startswith(("•", "-", "*", "(")):
+            escaped_cols = [html_mod.escape(c.strip()) for c in cols if c.strip()]
+            if len(escaped_cols) >= 3:
+                if not in_table:
+                    parts.append(
+                        '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin:0.3rem 0;">'
+                    )
+                    in_table = True
+                cells = "".join(
+                    f'<td style="padding:0.2rem 0.5rem;border-bottom:1px solid #e5e7eb;">{c}</td>'
+                    for c in escaped_cols
+                )
+                parts.append(f"<tr>{cells}</tr>")
+                continue
+
+        if in_table:
+            parts.append("</table>")
+            in_table = False
+
         escaped = html_mod.escape(stripped)
-        if stripped.isupper() and len(stripped) > 3 and len(stripped) < 120:
+
+        # Bullet / list items
+        if re.match(r"^[•\-\*]\s+", stripped):
+            content = html_mod.escape(re.sub(r"^[•\-\*]\s+", "", stripped))
+            parts.append(
+                f'<div style="padding-left:1.2rem;text-indent:-0.8rem;margin:0.1rem 0;">• {content}</div>'
+            )
+        # Numbered list items
+        elif re.match(r"^\d+[\.\)]\s+", stripped):
+            parts.append(
+                f'<div style="padding-left:1.2rem;text-indent:-0.8rem;margin:0.1rem 0;">{escaped}</div>'
+            )
+        # ALL-CAPS headers
+        elif stripped.isupper() and 3 < len(stripped) < 120:
             parts.append(f"<strong style='color:#1e40af;'>{escaped}</strong><br>")
+        # Lines ending with colon as sub-headers
         elif stripped.endswith(":") and len(stripped) < 80:
             parts.append(f"<strong>{escaped}</strong><br>")
         else:
             parts.append(f"{escaped}<br>")
+
+    if in_table:
+        parts.append("</table>")
 
     return "\n".join(parts)
 
@@ -268,17 +329,18 @@ elif _run_source == "custom":
 if _run_source:
     with st.spinner(f"正在抽取 {accession}…"):
         try:
-            html = fetch_filing_html(
+            html, resolved_cik = fetch_filing_html(
                 accession,
                 url=filing_url,
                 cik=cik,
                 force_refresh=False,
             )
+            display_cik = resolved_cik or cik
             st.session_state["sec_result"] = None
             result = extract_from_html(
                 html,
                 accession=accession,
-                cik=cik,
+                cik=display_cik,
                 ticker=ticker,
                 use_arbiter=use_arbiter,
                 run_id=None,

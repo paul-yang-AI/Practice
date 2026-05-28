@@ -125,11 +125,13 @@ def _try_resolve_index(cik_clean: str, accession: str) -> httpx.Response | None:
         return None
 
 
-def resolve_filing_url(accession: str, cik: str | None = None) -> str:
+def resolve_filing_url(accession: str, cik: str | None = None) -> tuple[str, str]:
     """Resolve the primary 10-K HTML document URL from EDGAR filing index.
 
     Tries multiple CIK candidates: provided CIK, accession-derived CIK,
     and EDGAR submissions API lookup.
+
+    Returns (url, resolved_cik).
     """
     accession_nodash = accession.replace("-", "")
     acc_prefix_cik = accession.split("-")[0].lstrip("0") or "0"
@@ -217,7 +219,7 @@ def resolve_filing_url(accession: str, cik: str | None = None) -> str:
             break
 
     logger.info("Resolved filing URL: %s (CIK: %s)", primary, cik_clean)
-    return primary
+    return primary, cik_clean
 
 
 def fetch_filing_html(
@@ -226,39 +228,34 @@ def fetch_filing_html(
     *,
     cik: str | None = None,
     force_refresh: bool = False,
-) -> str:
+) -> tuple[str, str | None]:
     """Fetch filing HTML from EDGAR.
 
-    Args:
-        accession: SEC accession number (e.g. '0000789019-24-000045')
-        url: Direct URL to 10-K HTML. If None, auto-resolved from EDGAR index.
-        cik: CIK number (helps resolve URL). Extracted from accession if not given.
-        force_refresh: If True, bypass cache and fetch live from EDGAR.
-
     Returns:
-        HTML content of the filing.
+        (html_content, resolved_cik) — resolved_cik may differ from input cik.
     """
     path = cache_path(accession)
 
     if not force_refresh and path.exists():
-        return path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace"), cik
 
+    resolved_cik = cik
     if not url:
-        url = resolve_filing_url(accession, cik=cik)
+        url, resolved_cik = resolve_filing_url(accession, cik=cik)
 
     try:
         response = _http_get(url)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             logger.warning("URL returned 404, resolving from EDGAR index: %s", url)
-            url = resolve_filing_url(accession, cik=cik)
+            url, resolved_cik = resolve_filing_url(accession, cik=cik)
             response = _http_get(url)
         else:
             raise
 
     html = response.text
     path.write_text(html, encoding="utf-8")
-    return html
+    return html, resolved_cik
 
 
 def search_filings(

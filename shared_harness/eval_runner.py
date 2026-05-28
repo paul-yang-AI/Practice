@@ -208,7 +208,7 @@ def evaluate_filing(
     required_items: list[str] | None = None,
 ) -> FilingEvalResult:
     accession = filing["accession"]
-    html = fetch_filing_html(accession)
+    html, _resolved_cik = fetch_filing_html(accession)
     extraction = extract_from_html(
         html,
         accession=accession,
@@ -393,9 +393,15 @@ def evaluate_agent_task(
 
     silent = 0
     if result.status == "success":
-        needs_output = task.get("task_type") in ("extract", "search", "form")
-        if needs_output and not (result.extracted_result or "").strip():
-            silent = 1
+        task_type = task.get("task_type", "")
+        if task_type in ("extract", "search", "form"):
+            if not (result.extracted_result or "").strip():
+                silent = 1
+        elif task_type == "navigate":
+            expected_domain = task.get("domain", "")
+            final_url = result.final_url or (result.steps[-1].url if result.steps else "")
+            if expected_domain and expected_domain not in final_url:
+                silent = 1
 
     failure_category = _classify_agent_failure(result.status, result.error)
     if silent:

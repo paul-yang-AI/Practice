@@ -1,21 +1,8 @@
-"""首頁 — 專案概覽、架構卡片、即時健康指標。"""
+"""首頁 — 專案概覽、設計文件、架構圖。"""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import streamlit as st
-
-_REPORTS = Path(__file__).resolve().parent.parent / "reports"
-
-
-def _load_summary() -> dict | None:
-    p = _REPORTS / "eval_summary.json"
-    if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
-    return None
-
 
 st.markdown(
     """
@@ -25,11 +12,22 @@ st.markdown(
 .arch-card {
     border: 1px solid #e0e0e0; border-radius: 14px; padding: 1.3rem;
     text-align: center; background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
-    transition: box-shadow 0.2s;
+    transition: box-shadow 0.2s; min-height: 160px;
 }
 .arch-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
 .arch-card h3 { margin: 0.5rem 0 0.3rem; font-size: 1.05rem; font-weight: 700; }
 .arch-card p { margin: 0; font-size: 0.82rem; color: #555; line-height: 1.6; }
+.design-card {
+    border-left: 4px solid #4f46e5; background: #f8faff; border-radius: 0 12px 12px 0;
+    padding: 1rem 1.2rem; margin-bottom: 1rem;
+}
+.design-card h4 { margin: 0 0 0.3rem; font-size: 0.95rem; color: #4f46e5; }
+.design-card p { margin: 0; font-size: 0.85rem; color: #444; line-height: 1.7; }
+.flow-step {
+    display: inline-block; background: #eef2ff; border-radius: 8px; padding: 0.5rem 0.9rem;
+    margin: 0.2rem; font-size: 0.82rem; font-weight: 600; color: #4338ca;
+}
+.flow-arrow { display: inline-block; margin: 0 0.15rem; color: #a5b4fc; font-weight: 700; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -44,84 +42,129 @@ st.markdown(
 
 st.divider()
 
+# ── Architecture Cards ──────────────────────────────────
+st.subheader("系統架構")
 col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown(
         '<div class="arch-card">'
-        "<h3>📄 SEC 10-K 管線</h3>"
-        "<p>混合式 Tier0（BS4/正則）+ LLM 仲裁<br>"
-        "三層 fallback · 合併偵測 · 跨引用過濾</p>"
+        "<h3>📄 Task 2 — SEC 10-K 管線</h3>"
+        "<p>三層抽取：Tier0（BS4/正則）→ Tier1（LLM 仲裁）→ Tier2（LLM Fallback）<br>"
+        "合併引用偵測 · 跨引用過濾 · 段落完整性保證</p>"
         "</div>",
         unsafe_allow_html=True,
     )
 with col2:
     st.markdown(
         '<div class="arch-card">'
-        "<h3>🤖 瀏覽器代理</h3>"
-        "<p>計畫→執行→觀察→驗證→反思<br>"
-        "Playwright + LLM 規劃 + 分類式錯誤恢復</p>"
+        "<h3>🤖 Task 1 — 瀏覽器代理</h3>"
+        "<p>Plan → Act → Observe → Verify → Reflect<br>"
+        "Playwright + LLM 規劃 · 分類式錯誤恢復<br>"
+        "PDF 偵測 · 關鍵字驗證 · 成本熔斷</p>"
         "</div>",
         unsafe_allow_html=True,
     )
 with col3:
     st.markdown(
         '<div class="arch-card">'
-        "<h3>📊 評估駕馭層</h3>"
-        "<p>L1 單元 / L2 整合 / L3 端對端<br>"
-        "CSV 報告 · 成本追蹤 · 熔斷機制</p>"
+        "<h3>📊 駕馭層 (Harness)</h3>"
+        "<p>Contract-Driven Evaluation（無需 Ground Truth）<br>"
+        "LLM Router · Cost Tracker · Job Store<br>"
+        "L1 單元 / L2 整合 / L3 端對端</p>"
         "</div>",
         unsafe_allow_html=True,
     )
 
 st.divider()
 
-summary = _load_summary()
-if summary:
-    st.subheader("即時評估指標")
-    m1, m2, m3, m4 = st.columns(4)
+# ── Core Design Decisions ───────────────────────────────
+st.subheader("核心設計決策")
 
-    sec_pass = summary.get("sec_ok", 0)
-    sec_total = summary.get("sec_filings", summary.get("sec_total", 1))
-    agent_total = summary.get("agent_tasks", summary.get("agent_total", 1))
-    agent_rate = summary.get("agent_success_rate", 0)
-    agent_pass = int(agent_rate * agent_total) if agent_rate <= 1 else int(agent_rate)
-    p50_lat = summary.get("agent_latency_p50", summary.get("agent_p50_latency_s"))
-    p50_cost = summary.get("agent_usd_p50", summary.get("agent_p50_cost_usd", 0))
-
-    m1.metric("SEC 10-K", f"{sec_pass}/{sec_total}", delta="全部通過" if sec_pass == sec_total else None)
-    m2.metric("瀏覽器代理", f"{agent_pass}/{agent_total}", delta=f"{agent_rate:.0%}")
-    m3.metric("P50 延遲", f"{p50_lat:.1f}s" if p50_lat else "N/A")
-    m4.metric("P50 成本", f"${p50_cost:.4f}" if p50_cost else "N/A")
-
-    overall = (sec_pass + agent_pass) / max(sec_total + agent_total, 1)
-    st.progress(
-        min(max(overall, 0.0), 1.0),
-        text=f"整體通過率：{sec_pass + agent_pass}/{sec_total + agent_total} 項任務通過",
-    )
-else:
-    st.info("尚無評估摘要。請先執行 `python scripts/run_eval.py --split train --write-summary`")
+st.markdown(
+    '<div class="design-card">'
+    "<h4>1. 為什麼不用純 LLM 抽取 SEC 報表？</h4>"
+    "<p>Tier0（BS4/正則）以 <b>$0 成本</b>處理 90%+ 的 items，確定性抽取不會產生幻覺。"
+    "LLM 僅在兩種情形啟動：(a) 邊界爭議仲裁 &lt; 5% 案例，(b) Tier0 覆蓋率不足時的 Fallback。"
+    "這是成本、速度、準確度的最佳平衡點。</p>"
+    "</div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="design-card">'
+    "<h4>2. Contract-Driven Evaluation — 不需人工標注的品質驗證</h4>"
+    "<p><b>Span Integrity</b>：body[start:end] == text → 零幻覺。"
+    "<b>Token Ratio ≥ 0.85</b> → 零摘要（保證原文）。"
+    "<b>Header Retention</b> → 邊界精度。"
+    "三個指標結合，讓面試官可以對任意 held-out 10-K 自動驗證品質，無需準備 ground truth。</p>"
+    "</div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="design-card">'
+    "<h4>3. 將 LLM 視為不穩定推理引擎</h4>"
+    "<p>LLM Router 提供重試、fallback、budget 熔斷。"
+    "每次 LLM 呼叫都有 cost tracking（per-token 計費），超預算自動停機。"
+    "Agent 架構中，每一步都存入 SQLite，可完全審計。失敗時分類恢復而非盲目重試。</p>"
+    "</div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div class="design-card">'
+    "<h4>4. 泛化而非過擬合</h4>"
+    "<p>開發只用 4 份 train filing 和 6 個 agent task 做 sanity check。"
+    "管線不含任何 filing-specific hardcode（如 CIK 白名單、公司名特判）。"
+    "EDGAR API 搜尋 + CIK 自動解析，讓面試官可以自由輸入任意 10-K accession。</p>"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
 st.divider()
 
-with st.expander("架構概覽", expanded=True):
-    st.markdown("""
-```
-┌──────────────────────────────────────────────────────────┐
-│                Streamlit 多頁面應用程式                      │
-├──────────────┬──────────────────┬─────────────────────────┤
-│  SEC 10-K    │  瀏覽器代理       │  評估儀表板               │
-│  (頁面 1)    │  (頁面 2)        │  (頁面 3)                │
-├──────────────┴──────────────────┴─────────────────────────┤
-│                  shared_harness/                            │
-│  llm_router · cost_tracker · job_store · edgar_client      │
-│  llm_parse · prompt_loader · schemas                       │
-├──────────────────────────────────────────────────────────┤
-│  LLM 層：Gemini (主要) → OpenRouter (備援)                  │
-│  預算：$20 全域 · $0.50/代理執行 · 熔斷器                     │
-└──────────────────────────────────────────────────────────┘
-```
-""")
+# ── SEC Pipeline Flow ───────────────────────────────────
+st.subheader("SEC 10-K 抽取流程")
+st.markdown(
+    '<span class="flow-step">HTML 快取</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Normalize</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Tier0 分段</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">合併偵測</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">LLM 仲裁</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">LLM Fallback</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">驗證 + 輸出</span>',
+    unsafe_allow_html=True,
+)
+st.caption("Tier0 覆蓋率正常時，LLM 仲裁和 Fallback 均不觸發（$0 路徑）")
 
+st.divider()
+
+# ── Agent Loop Flow ─────────────────────────────────────
+st.subheader("瀏覽器代理迴圈")
+st.markdown(
+    '<span class="flow-step">Navigate</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Plan (LLM)</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Act (Playwright)</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Observe</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Verify</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Reflect (LLM)</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">Extract</span>',
+    unsafe_allow_html=True,
+)
+st.caption("失敗時觸發分類式恢復（element_not_found → 捲動重試, timeout → 延長等待）")
+
+st.divider()
+
+# ── Tech Stack Table ────────────────────────────────────
 with st.expander("技術堆疊"):
     st.markdown("""
 | 層級 | 技術 | 用途 |
@@ -136,26 +179,30 @@ with st.expander("技術堆疊"):
 | 測試 | pytest (65+) | 單元 / 整合 / 端對端 |
 """)
 
-with st.expander("設計決策（面試重點）"):
+with st.expander("評估層級說明"):
     st.markdown("""
-**為什麼用混合式 Tier0 + LLM，而非純 LLM？**
-- 成本：Tier0（BS4/正則）以 $0 成本處理 90%+ 的 items
-- 可靠性：確定性抽取不會幻覺出錯誤的段落邊界
-- LLM 仲裁僅在爭議邊界啟動（< 5% 的案例）
-
-**為什麼用 Plan-Act-Observe-Verify-Reflect 循環？**
-- 結構化代理架構防止無限循環
-- 分類式恢復（element_not_found → 捲動後重試, timeout → 延長等待）
-- 每一步都可審計 — SQLite 完整追蹤
-
-**為什麼選 Gemini + OpenRouter 備援？**
-- Gemini Flash：速度最快、成本最低的 Tier1 規劃
-- OpenRouter：模型多樣性，避免供應商鎖定
-- 預算熔斷器防止失控成本
-
-**Contract-Driven Evaluation（無需 Ground Truth）**
-- Span integrity：`body[start:end] == text` → 零幻覺保證
-- Token ratio ≥ 0.85 → 零摘要保證
-- Header retention → 邊界精度保證
-- 三者結合，不需人工標注即可驗證品質
+| 層級 | 名稱 | 驗證範圍 | 需要 LLM？ |
+|------|------|----------|-----------|
+| L0 | Heuristic Verify | 關鍵字匹配、URL domain 驗證 | 否 |
+| L1 | Unit Tests | 單一模組 in / out | 否 |
+| L2 | Integration Tests | 端對端管線 + gold 比對 | 否 |
+| L3 | Contract Evaluation | span integrity + token ratio + header retention | 否 |
+| L4 | Blind Critic (可選) | LLM 審查結果品質 | 是 |
 """)
+
+with st.expander("系統架構圖（文字版）"):
+    st.code("""
+┌──────────────────────────────────────────────────────────────┐
+│                 Streamlit 多頁面應用程式                        │
+├──────────────┬───────────────────┬────────────────────────────┤
+│  SEC 10-K    │  瀏覽器代理        │  評估儀表板                  │
+│  (頁面 1)    │  (頁面 2)         │  (頁面 3)                   │
+├──────────────┴───────────────────┴────────────────────────────┤
+│                    shared_harness/                              │
+│  llm_router · cost_tracker · job_store · edgar_client          │
+│  llm_parse · prompt_loader · schemas · eval_runner             │
+├──────────────────────────────────────────────────────────────┤
+│  LLM：Gemini (主要) → OpenRouter (備援)                        │
+│  預算：$20 全域 · $0.50/代理執行 · 熔斷器                        │
+└──────────────────────────────────────────────────────────────┘
+""", language=None)
