@@ -59,9 +59,13 @@ def _invoke(
     messages: list[dict[str, str]],
     tier: int,
     max_tokens: int,
+    *,
+    force_json: bool = False,
 ) -> tuple[str, int, int]:
     cfg = llm_config.resolve_tier(tier)
     extra = _completion_kwargs(cfg, tier)
+    if force_json:
+        extra["response_format"] = {"type": "json_object"}
     response = litellm.completion(
         model=model,
         messages=messages,
@@ -86,9 +90,10 @@ def _attempt(
     task_type: str,
     max_tokens: int,
     schema: type[BaseModel] | None,
+    force_json: bool = False,
 ) -> str | BaseModel:
     check_budget(run_id, task_type=task_type, before_call=True)
-    raw, tin, tout = _invoke(model, messages, tier, max_tokens)
+    raw, tin, tout = _invoke(model, messages, tier, max_tokens, force_json=force_json)
     record_cost(
         run_id=run_id,
         tier=tier,
@@ -117,7 +122,7 @@ def complete(
     max_tokens: int = 1024,
 ) -> str | BaseModel:
     cfg = llm_config.resolve_tier(tier)
-    json_nudge = [{"role": "user", "content": "Respond with valid JSON only. No markdown fences."}]
+    use_json_mode = schema is not None
 
     try:
         return _attempt(
@@ -130,10 +135,12 @@ def complete(
             task_type=task_type,
             max_tokens=max_tokens,
             schema=schema,
+            force_json=use_json_mode,
         )
     except BudgetExceededError:
         raise
     except ValidationError:
+        json_nudge = [{"role": "user", "content": "Respond with valid JSON only. No markdown fences."}]
         try:
             return _attempt(
                 model=cfg.primary,
@@ -145,6 +152,7 @@ def complete(
                 task_type=task_type,
                 max_tokens=max_tokens,
                 schema=schema,
+                force_json=True,
             )
         except BudgetExceededError:
             raise

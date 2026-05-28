@@ -71,17 +71,24 @@ def _throttle() -> None:
         _last_request_at = time.monotonic()
 
 
-def _http_get(url: str) -> httpx.Response:
-    """Single throttled HTTP GET with SEC User-Agent."""
+def _http_get(url: str, *, retries: int = 2) -> httpx.Response:
+    """Throttled HTTP GET with SEC User-Agent and retry on 503."""
     ua = get_user_agent()
-    _throttle()
     headers = {"User-Agent": ua, "Accept-Encoding": "gzip, deflate"}
-    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-        response = client.get(url, headers=headers)
-    if response.status_code in (403, 429):
-        raise EdgarRateLimitedError(f"SEC rate limited: HTTP {response.status_code}")
-    response.raise_for_status()
-    return response
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        _throttle()
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+            response = client.get(url, headers=headers)
+        if response.status_code in (403, 429):
+            raise EdgarRateLimitedError(f"SEC rate limited: HTTP {response.status_code}")
+        if response.status_code == 503 and attempt < retries:
+            logger.warning("SEC 503, retrying (%d/%d): %s", attempt + 1, retries, url)
+            time.sleep(2 * (attempt + 1))
+            continue
+        response.raise_for_status()
+        return response
+    raise last_exc or EdgarClientError(f"Failed after {retries} retries: {url}")
 
 
 def resolve_filing_url(accession: str, cik: str | None = None) -> str:
@@ -102,7 +109,31 @@ def resolve_filing_url(accession: str, cik: str | None = None) -> str:
     )
     logger.info("Resolving filing URL from index: %s", index_url)
 
-    response = _http_get(index_url)
+    try:
+        response = _http_get(index_url)
+    except (httpx.HTTPStatusError, EdgarClientError):
+        # Fallback: try JSON index format
+        json_index_url = (
+            f"https://www.sec.gov/Archives/edgar/data/{cik_clean}"
+            f"/{accession_nodash}/index.json"
+        )
+        logger.warning("HTML index failed, trying JSON index: %s", json_index_url)
+        try:
+            json_resp = _http_get(json_index_url)
+            import json as _json
+            idx_data = _json.loads(json_resp.text)
+            for item in idx_data.get("directory", {}).get("item", []):
+                name = item.get("name", "")
+                if name.endswith(".htm") and not name.endswith("-index.htm"):
+                    if "ex" not in name.lower():
+                        base_path = f"/Archives/edgar/data/{cik_clean}/{accession_nodash}/"
+                        return f"https://www.sec.gov{base_path}{name}"
+        except Exception:
+            pass
+        raise EdgarClientError(
+            f"Could not resolve filing from index (both HTML and JSON failed): {index_url}"
+        )
+
     html = response.text
 
     base_path = f"/Archives/edgar/data/{cik_clean}/{accession_nodash}/"

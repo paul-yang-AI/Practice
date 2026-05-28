@@ -1,4 +1,4 @@
-"""SEC 10-K extraction UI — Part → Item tree from cached filings."""
+"""SEC 10-K extraction UI — vivid rendering with confidence bars and structured cards."""
 
 from __future__ import annotations
 
@@ -14,85 +14,179 @@ from task2_sec.pipeline.run import extract_from_html
 _MANIFEST = Path(__file__).resolve().parent.parent / "task2_sec" / "eval" / "manifest.json"
 _PART_ORDER = ["I", "II", "III", "IV"]
 
+_ITEM_NAMES = {
+    "1": "Business",
+    "1A": "Risk Factors",
+    "1B": "Unresolved Staff Comments",
+    "1C": "Cybersecurity",
+    "2": "Properties",
+    "3": "Legal Proceedings",
+    "4": "Mine Safety Disclosures",
+    "5": "Market for Registrant's Common Equity",
+    "6": "[Reserved]",
+    "7": "Management's Discussion and Analysis (MD&A)",
+    "7A": "Quantitative and Qualitative Disclosures About Market Risk",
+    "8": "Financial Statements and Supplementary Data",
+    "9": "Changes in and Disagreements with Accountants",
+    "9A": "Controls and Procedures",
+    "9B": "Other Information",
+    "10": "Directors, Executive Officers and Corporate Governance",
+    "11": "Executive Compensation",
+    "12": "Security Ownership",
+    "13": "Certain Relationships and Related Transactions",
+    "14": "Principal Accountant Fees and Services",
+    "15": "Exhibits and Financial Statement Schedules",
+    "16": "Form 10-K Summary",
+}
+
 
 def _load_manifest() -> list[dict]:
     data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
     return [f for f in data["filings"] if f.get("split", "train") == "train"]
 
 
-def _status_badge(status: ItemStatus) -> str:
-    mapping = {
-        ItemStatus.EXTRACTED: "✅ extracted",
-        ItemStatus.LOW_CONFIDENCE: "⚠️ low confidence",
-        ItemStatus.MISSING: "❌ missing",
-        ItemStatus.INCORPORATED_BY_REFERENCE: "📎 incorporated by reference",
-        ItemStatus.NOT_APPLICABLE: "➖ not applicable",
-    }
-    return mapping.get(status, status.value)
+def _status_color(status: ItemStatus) -> str:
+    return {
+        ItemStatus.EXTRACTED: "#10b981",
+        ItemStatus.LOW_CONFIDENCE: "#f59e0b",
+        ItemStatus.MISSING: "#ef4444",
+        ItemStatus.INCORPORATED_BY_REFERENCE: "#6366f1",
+        ItemStatus.NOT_APPLICABLE: "#9ca3af",
+    }.get(status, "#6b7280")
+
+
+def _status_icon(status: ItemStatus) -> str:
+    return {
+        ItemStatus.EXTRACTED: "✅",
+        ItemStatus.LOW_CONFIDENCE: "⚠️",
+        ItemStatus.MISSING: "❌",
+        ItemStatus.INCORPORATED_BY_REFERENCE: "📎",
+        ItemStatus.NOT_APPLICABLE: "➖",
+    }.get(status, "❓")
 
 
 def _render_item(item) -> None:
-    badge = _status_badge(item.status)
-    header = f"Item {item.item_id} — {badge} (confidence {item.confidence:.2f})"
+    icon = _status_icon(item.status)
+    color = _status_color(item.status)
+    name = _ITEM_NAMES.get(item.item_id, "")
+    title = f"Item {item.item_id}" + (f" — {name}" if name else "")
+
     if item.status == ItemStatus.EXTRACTED and item.text:
-        with st.expander(header, expanded=item.item_id in {"1", "7", "8"}):
-            st.text(item.text[:8000] + ("…" if len(item.text) > 8000 else ""))
+        with st.expander(f"{icon} {title}", expanded=False):
+            # Confidence bar
+            col_conf, col_len = st.columns([2, 1])
+            with col_conf:
+                st.progress(item.confidence, text=f"Confidence: {item.confidence:.0%}")
+            with col_len:
+                word_count = len(item.text.split())
+                st.caption(f"📝 {word_count:,} words · {len(item.text):,} chars")
+
+            # Render text as markdown with basic structure
+            formatted = _format_sec_text(item.text)
+            st.markdown(
+                f'<div style="border-left: 4px solid {color}; padding-left: 1rem; '
+                f'max-height: 500px; overflow-y: auto; font-size: 0.9rem; '
+                f'line-height: 1.6; background: #fafafa; border-radius: 4px; padding: 1rem;">'
+                f"{formatted}</div>",
+                unsafe_allow_html=True,
+            )
+
             if item.warnings:
-                st.caption("Warnings: " + ", ".join(item.warnings))
+                st.caption("⚠️ " + " · ".join(item.warnings))
+
     elif item.status == ItemStatus.INCORPORATED_BY_REFERENCE:
-        st.warning(header)
-        for w in item.warnings:
-            st.caption(w)
-    elif item.status == ItemStatus.LOW_CONFIDENCE:
-        st.warning(header)
-        if item.text:
-            st.text(item.text[:4000])
+        with st.expander(f"{icon} {title} — Incorporated by Reference", expanded=False):
+            st.progress(item.confidence, text=f"Confidence: {item.confidence:.0%}")
+            st.info("This item is incorporated by reference from the company's proxy statement.")
+            if item.warnings:
+                for w in item.warnings:
+                    st.caption(f"📋 {w}")
+
     elif item.status == ItemStatus.MISSING:
-        st.error(header)
+        st.markdown(
+            f'<div style="padding: 0.5rem 1rem; border-left: 4px solid {color}; '
+            f'background: #fef2f2; border-radius: 4px; margin: 0.3rem 0;">'
+            f'{icon} <strong>{title}</strong> — Not found in filing</div>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.info(header)
+        st.markdown(
+            f'<div style="padding: 0.5rem 1rem; border-left: 4px solid {color}; '
+            f'background: #f9fafb; border-radius: 4px; margin: 0.3rem 0;">'
+            f'{icon} <strong>{title}</strong> — {item.status.value}</div>',
+            unsafe_allow_html=True,
+        )
 
 
-st.title("SEC 10-K Extraction")
-st.caption("Hybrid Tier0 pipeline — BS4/regex segmentation with span integrity checks.")
+def _format_sec_text(text: str) -> str:
+    """Convert raw SEC text into basic HTML with paragraph breaks and headers."""
+    import html as html_mod
 
-tab_manifest, tab_custom = st.tabs(["From Manifest", "Custom Filing"])
+    lines = text.strip().split("\n")
+    parts: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            parts.append("<br>")
+            continue
+        escaped = html_mod.escape(stripped)
+        # Detect section-like headers (ALL CAPS lines or lines ending with colon)
+        if stripped.isupper() and len(stripped) > 3 and len(stripped) < 120:
+            parts.append(f"<strong style='color:#1e40af;'>{escaped}</strong><br>")
+        elif stripped.endswith(":") and len(stripped) < 80:
+            parts.append(f"<strong>{escaped}</strong><br>")
+        else:
+            parts.append(f"{escaped}<br>")
+
+    return "\n".join(parts)
+
+
+# --- Page Layout ---
+
+st.markdown(
+    '<h1 style="margin-bottom:0;">📄 SEC 10-K Extraction</h1>',
+    unsafe_allow_html=True,
+)
+st.caption(
+    "Hybrid pipeline: Tier0 (BS4 + regex segmentation) → span integrity validation → "
+    "optional Tier2 LLM arbiter for disputed boundaries"
+)
+
+tab_manifest, tab_custom = st.tabs(["📋 From Manifest", "🔗 Custom Filing"])
 
 with tab_manifest:
     filings = _load_manifest()
     labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
-    choice = st.selectbox("Select filing (train manifest)", labels, index=0)
+    choice = st.selectbox("Select filing", labels, index=0)
     selected = filings[labels.index(choice)]
 
 with tab_custom:
+    st.markdown("Enter a SEC EDGAR accession number to extract any 10-K filing live.")
     custom_accession = st.text_input(
         "Accession number",
         placeholder="0000789019-24-000045",
-        help="SEC accession number (e.g. 0000789019-24-000045)",
     )
     custom_url = st.text_input(
-        "Filing URL (required for live fetch)",
+        "Filing URL (optional — auto-resolved if blank)",
         placeholder="https://www.sec.gov/Archives/edgar/data/.../filing.htm",
-        help="Full URL to the 10-K HTML filing on SEC EDGAR",
     )
     custom_ticker = st.text_input("Ticker (optional)", placeholder="MSFT")
 
 col_opt1, col_opt2 = st.columns(2)
 with col_opt1:
     force_live = st.checkbox(
-        "Force live EDGAR fetch (ignore cache)",
+        "🌐 Force live EDGAR fetch",
         value=False,
-        help="Bypass local cache and fetch directly from SEC EDGAR. "
-        "Requires SEC_USER_AGENT. URL is auto-resolved if not provided.",
+        help="Bypass cache, fetch directly from SEC. Requires SEC_USER_AGENT.",
     )
 with col_opt2:
     use_arbiter = st.checkbox(
-        "Enable Tier2 LLM arbiter (disputed boundaries only)",
+        "🧠 Enable LLM arbiter (disputed boundaries)",
         value=False,
-        help="Requires GEMINI_API_KEY. Adds cost for low-confidence segments.",
+        help="Uses Tier2 model for low-confidence segments. Adds cost.",
     )
 
-run = st.button("Extract", type="primary")
+run = st.button("🚀 Extract", type="primary", use_container_width=True)
 
 if run:
     if custom_accession.strip():
@@ -114,7 +208,7 @@ if run:
                 cik=cik,
                 force_refresh=force_live,
             )
-            st.info(f"Fetched {len(html):,} characters of HTML.")
+            st.session_state["sec_result"] = None  # Clear old
             result = extract_from_html(
                 html,
                 accession=accession,
@@ -124,20 +218,51 @@ if run:
                 run_id=None,
             )
             st.session_state["sec_result"] = result
+            st.session_state["sec_html_len"] = len(html)
         except Exception as exc:
-            st.error(f"Extraction failed: {exc}")
+            st.error(f"❌ Extraction failed: {exc}")
 
 result = st.session_state.get("sec_result")
 if result:
+    st.divider()
+
+    # Filing metadata card
+    html_len = st.session_state.get("sec_html_len", 0)
+    st.markdown(
+        f'<div style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%); '
+        f'border-radius: 12px; padding: 1.2rem; margin-bottom: 1rem;">'
+        f'<strong style="font-size: 1.3rem;">{result.ticker or "N/A"}</strong> &nbsp;'
+        f'<span style="color:#666;">CIK: {result.cik or "N/A"} &nbsp;|&nbsp; '
+        f'Accession: {result.accession}</span><br>'
+        f'<span style="font-size: 0.85rem; color: #888;">'
+        f'Source: {html_len:,} chars HTML</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Summary metrics
     extracted = sum(1 for i in result.items if i.status == ItemStatus.EXTRACTED)
     incorporated = sum(1 for i in result.items if i.status == ItemStatus.INCORPORATED_BY_REFERENCE)
     missing = sum(1 for i in result.items if i.status == ItemStatus.MISSING)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Extracted", extracted)
-    c2.metric("Incorporated by ref", incorporated)
-    c3.metric("Missing", missing)
-    c4.metric("Total items", len(STANDARD_ITEMS))
+    low_conf = sum(1 for i in result.items if i.status == ItemStatus.LOW_CONFIDENCE)
 
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("✅ Extracted", extracted)
+    c2.metric("📎 Incorporated", incorporated)
+    c3.metric("⚠️ Low Confidence", low_conf)
+    c4.metric("❌ Missing", missing)
+    c5.metric("📊 Total", len(result.items))
+
+    # Coverage bar
+    total = len(result.items) or 1
+    st.progress(
+        (extracted + incorporated) / total,
+        text=f"Coverage: {extracted + incorporated}/{total} items resolved "
+        f"({(extracted + incorporated) / total:.0%})",
+    )
+
+    st.divider()
+
+    # Items grouped by Part
     by_part: dict[str, list] = {p: [] for p in _PART_ORDER}
     by_part["Other"] = []
     for item in result.items:
@@ -148,13 +273,34 @@ if result:
         items = by_part.get(part) or []
         if not items:
             continue
-        st.subheader(f"Part {part}")
+        st.markdown(f"### Part {part}")
         for item in items:
             _render_item(item)
 
-    st.download_button(
-        "Download JSON",
-        data=result.model_dump_json(indent=2),
-        file_name=f"{result.accession or 'filing'}.json",
-        mime="application/json",
-    )
+    st.divider()
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            "📥 Download JSON",
+            data=result.model_dump_json(indent=2),
+            file_name=f"{result.accession or 'filing'}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with col_dl2:
+        # Generate markdown summary
+        md_lines = [f"# {result.ticker} 10-K Extraction\n\n"]
+        md_lines.append(f"Accession: {result.accession}\n\n")
+        for item in result.items:
+            name = _ITEM_NAMES.get(item.item_id, "")
+            md_lines.append(f"## Item {item.item_id} — {name}\n\n")
+            md_lines.append(f"Status: {item.status.value} | Confidence: {item.confidence:.0%}\n\n")
+            if item.text:
+                md_lines.append(item.text[:3000] + "\n\n---\n\n")
+        st.download_button(
+            "📥 Download Markdown",
+            data="".join(md_lines),
+            file_name=f"{result.accession or 'filing'}.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )

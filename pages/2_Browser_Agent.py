@@ -1,4 +1,4 @@
-"""Browser Agent UI — task presets, live status, classified recovery."""
+"""Browser Agent UI — timeline view, auto-refresh, vivid result cards."""
 
 from __future__ import annotations
 
@@ -18,38 +18,56 @@ _PRESETS = [
         "label": "Custom task (enter below)",
         "task": "",
         "url": "",
+        "category": "",
     },
     {
-        "label": "Navigate to Example.com",
+        "label": "🌐 Navigate to Example.com",
         "task": "Navigate to example.com and verify the page loads successfully.",
         "url": "https://example.com",
+        "category": "navigation",
     },
     {
-        "label": "Hacker News — read top story",
+        "label": "📰 Hacker News — top story title",
         "task": "Go to Hacker News and find the title of the #1 ranked story.",
         "url": "https://news.ycombinator.com",
+        "category": "extraction",
     },
     {
-        "label": "Wikipedia — search Alan Turing",
+        "label": "📖 Wikipedia — search Alan Turing",
         "task": "Search Wikipedia for 'Alan Turing' and verify the article page loads.",
         "url": "https://en.wikipedia.org",
+        "category": "search",
     },
     {
-        "label": "DuckDuckGo — search query",
+        "label": "🔍 DuckDuckGo — search query",
         "task": "Search DuckDuckGo for 'playwright browser automation' and verify results appear.",
         "url": "https://duckduckgo.com",
+        "category": "search",
     },
     {
-        "label": "httpbin — view headers",
-        "task": "Navigate to httpbin.org/headers and verify the JSON response is displayed.",
+        "label": "🔧 httpbin — view headers",
+        "task": "Navigate to httpbin.org/headers and extract the User-Agent header value.",
         "url": "https://httpbin.org/headers",
+        "category": "extraction",
     },
     {
-        "label": "GitHub — view cpython repo",
-        "task": "Navigate to the Python cpython repository on GitHub.",
+        "label": "🐍 GitHub — view cpython repo",
+        "task": "Navigate to the Python cpython repository on GitHub and confirm the repo title.",
         "url": "https://github.com/python/cpython",
+        "category": "navigation",
     },
 ]
+
+_ACTION_ICONS = {
+    "navigate": "🌐",
+    "click": "👆",
+    "type": "⌨️",
+    "scroll": "📜",
+    "press_key": "⏎",
+    "task_complete": "🎯",
+    "plan_failed": "⚠️",
+    "recovery": "🔄",
+}
 
 
 def _get_run_steps(run_id: str) -> list[dict]:
@@ -73,9 +91,22 @@ def _get_run_status(run_id: str) -> str | None:
         conn.close()
 
 
-st.title("Browser Agent")
-st.caption("Plan → Act → Observe → Verify → Reflect | LLM-planned actions | Classified recovery")
+def _action_icon(action: str) -> str:
+    for key, icon in _ACTION_ICONS.items():
+        if action.startswith(key):
+            return icon
+    return "▶️"
 
+
+# --- Page Layout ---
+
+st.markdown(
+    '<h1 style="margin-bottom:0;">🤖 Browser Agent</h1>',
+    unsafe_allow_html=True,
+)
+st.caption("Plan → Act → Observe → Verify → Reflect &nbsp;|&nbsp; LLM-planned actions &nbsp;|&nbsp; Classified recovery")
+
+# Task input
 preset_labels = [p["label"] for p in _PRESETS]
 preset_choice = st.selectbox("Task presets", preset_labels, index=0)
 selected_preset = _PRESETS[preset_labels.index(preset_choice)]
@@ -90,8 +121,8 @@ else:
 task = st.text_area(
     "Task description",
     value=default_task,
-    placeholder="Describe what the agent should do...",
-    help="Natural language task. Simple navigation works best; search/form tasks use LLM planning.",
+    placeholder="Describe what the agent should do in natural language...",
+    height=80,
 )
 start_url = st.text_input(
     "Start URL",
@@ -102,10 +133,11 @@ start_url = st.text_input(
 st.session_state["agent_task_text"] = task
 st.session_state["agent_url_text"] = start_url
 
-col1, col2, col3 = st.columns(3)
-submit = col1.button("Run Task", type="primary")
-refresh = col2.button("Refresh Status")
-stop = col3.button("Stop Task", type="secondary")
+# Action buttons
+col1, col2, col3 = st.columns([2, 1, 1])
+submit = col1.button("🚀 Run Task", type="primary", use_container_width=True)
+refresh = col2.button("🔄 Refresh", use_container_width=True)
+stop = col3.button("⏹️ Stop", type="secondary", use_container_width=True)
 
 if "agent_run_id" not in st.session_state:
     st.session_state["agent_run_id"] = None
@@ -141,44 +173,38 @@ if submit:
 
         thread = threading.Thread(target=_run_agent, daemon=True)
         thread.start()
-        st.success(f"Task submitted! Run ID: `{run_id[:8]}...`")
-        st.info("Click **Refresh Status** to see progress (agent runs in background).")
+        st.success(f"✅ Task submitted! Run ID: `{run_id[:8]}…`")
+        st.info("The agent is running in the background. Click **🔄 Refresh** to see progress.")
 
 if stop:
     cancel = st.session_state.get("agent_cancel")
     if cancel and not cancel.is_set():
         cancel.set()
-        st.warning("Stop signal sent. Task will cancel at next step boundary.")
+        st.warning("⏹️ Stop signal sent. Task will cancel at next step boundary.")
     else:
         st.info("No active task to stop.")
 
+# Results display
 run_id = st.session_state.get("agent_run_id")
 if run_id and (refresh or submit):
     st.divider()
     status = _get_run_status(run_id)
+
     if status:
-        status_colors = {
-            "queued": "info",
-            "running": "info",
-            "success": "success",
-            "failed": "error",
-            "blocked": "warning",
-            "cancelled": "warning",
+        status_config = {
+            "success": ("✅", "Task completed successfully", "success"),
+            "failed": ("❌", "Task failed", "error"),
+            "blocked": ("🚫", "Blocked (login/CAPTCHA required)", "warning"),
+            "cancelled": ("⏹️", "Cancelled by user", "warning"),
+            "running": ("⏳", "Running...", "info"),
+            "queued": ("🕐", "Queued, waiting to start...", "info"),
         }
-        color = status_colors.get(status, "info")
-        status_icons = {
-            "success": "Task completed successfully",
-            "failed": "Task failed",
-            "blocked": "Task blocked (login/CAPTCHA required)",
-            "cancelled": "Task cancelled by user",
-            "running": "Task running...",
-            "queued": "Task queued, waiting to start...",
-        }
-        getattr(st, color)(f"**Status: {status.upper()}** — {status_icons.get(status, '')}")
+        icon, msg, color = status_config.get(status, ("❓", status, "info"))
+        getattr(st, color)(f"**{icon} {status.upper()}** — {msg}")
 
     steps = _get_run_steps(run_id)
     if steps:
-        # Show extracted result prominently if available
+        # Extract result
         extracted_result = None
         for s in reversed(steps):
             if s.get("log_json"):
@@ -190,104 +216,131 @@ if run_id and (refresh or submit):
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+        # Result card (prominent)
         if extracted_result:
-            st.subheader("Result")
-            st.markdown(f"```\n{extracted_result}\n```")
+            st.markdown(
+                f'<div style="background: linear-gradient(135deg, #dcfce7 0%, #d1fae5 100%); '
+                f"border-radius: 12px; padding: 1.5rem; margin: 1rem 0; "
+                f'border: 1px solid #86efac;">'
+                f'<strong style="font-size: 1.1rem;">🎯 Result</strong><br>'
+                f'<span style="font-size: 1rem; margin-top: 0.5rem; display: block;">'
+                f"{extracted_result}</span></div>",
+                unsafe_allow_html=True,
+            )
 
-        st.subheader(f"Execution Steps ({len(steps)})")
+        # Timeline view
+        st.markdown(f"### Execution Timeline ({len(steps)} steps)")
 
-        for s in steps:
+        for i, s in enumerate(steps):
             action = s.get("action", "")
             step_status = s.get("status", "")
+            icon = _action_icon(action)
 
-            if step_status == "success":
-                icon = "white_check_mark"
-            elif step_status == "failed":
-                icon = "x"
-            elif step_status == "attempting":
-                icon = "arrows_counterclockwise"
-            else:
-                icon = "arrow_right"
-
-            action_display = action
+            # Format action name
             if action.startswith("navigate:"):
-                action_display = f"Navigate to {action[9:]}"
+                action_display = f"Navigate → {action[9:]}"
             elif action == "task_complete":
-                action_display = "Task complete"
+                action_display = "Task Complete"
+            elif action == "plan_failed":
+                action_display = "LLM Planning Failed"
+            elif action.startswith("recovery:"):
+                action_display = f"Recovery: {action[9:]}"
             elif ":" in action:
                 parts = action.split(":", 1)
-                action_display = f"{parts[0].title()}: {parts[1]}"
+                action_display = f"{parts[0].title()} → {parts[1][:50]}"
+            else:
+                action_display = action
 
-            header = f":{icon}: Step {s['step_index']} — {action_display}"
-            if s.get("failure_type"):
-                header += f" | Recovery: {s.get('recovery_strategy', 'N/A')}"
+            # Status indicator
+            if step_status == "success":
+                border_color = "#10b981"
+                bg_color = "#f0fdf4"
+            elif step_status == "failed":
+                border_color = "#ef4444"
+                bg_color = "#fef2f2"
+            elif step_status == "attempting":
+                border_color = "#f59e0b"
+                bg_color = "#fffbeb"
+            else:
+                border_color = "#6b7280"
+                bg_color = "#f9fafb"
 
-            with st.expander(header, expanded=(step_status == "failed")):
-                cols = st.columns(3)
-                cols[0].caption(f"Status: **{step_status}**")
-                if s.get("failure_type"):
-                    cols[1].caption(f"Failure: {s['failure_type']}")
-                if s.get("recovery_strategy"):
-                    cols[2].caption(f"Strategy: {s['recovery_strategy']}")
+            # Parse log for URL
+            url_display = ""
+            error_display = ""
+            if s.get("log_json"):
+                try:
+                    log = json.loads(s["log_json"])
+                    if log.get("url"):
+                        url_display = log["url"]
+                    if log.get("error"):
+                        error_display = log["error"]
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
-                if s.get("log_json"):
-                    try:
-                        log = json.loads(s["log_json"])
-                        if log.get("url"):
-                            st.caption(f"URL: {log['url']}")
-                        if log.get("error"):
-                            st.error(f"Error: {log['error']}")
-                        if log.get("action") and log["action"] not in ("task_complete",):
-                            st.caption(f"Action: {log['action']}")
-                        if log.get("extracted_result"):
-                            st.success(f"**Extracted:** {log['extracted_result']}")
-                    except (json.JSONDecodeError, TypeError):
-                        st.text(s["log_json"])
+            # Render timeline item
+            connector = "│" if i < len(steps) - 1 else " "
+            st.markdown(
+                f'<div style="border-left: 3px solid {border_color}; padding: 0.6rem 1rem; '
+                f"margin-left: 1rem; margin-bottom: 0.3rem; background: {bg_color}; "
+                f'border-radius: 0 8px 8px 0;">'
+                f'<strong>{icon} Step {s["step_index"]}</strong> — {action_display}'
+                + (f'<br><span style="font-size:0.8rem;color:#666;">📍 {url_display}</span>' if url_display else "")
+                + (f'<br><span style="font-size:0.8rem;color:#dc2626;">⚠️ {error_display}</span>' if error_display else "")
+                + (f'<br><span style="font-size:0.8rem;color:#666;">🔄 Recovery: {s["recovery_strategy"]}</span>' if s.get("recovery_strategy") else "")
+                + "</div>",
+                unsafe_allow_html=True,
+            )
 
+        st.divider()
         st.download_button(
-            "Download run log (JSON)",
+            "📥 Download run log (JSON)",
             data=json.dumps(steps, indent=2, default=str),
             file_name=f"run_{run_id}.json",
             mime="application/json",
         )
-    elif status == "queued":
-        st.info("Task is queued, waiting to start...")
     elif status == "running":
-        st.info("Task is running... click **Refresh Status** again to check progress.")
+        st.info("⏳ Task is running... click **🔄 Refresh** to check progress.")
 
 st.divider()
-with st.expander("How it works", expanded=False):
-    st.markdown("""
-**Architecture**: Plan → Act → Observe → Verify → Reflect
 
-1. **Step 0**: Navigate to start URL, verify page loads
-2. **Step 1+**: LLM analyzes page state and plans next action (click, type, scroll, etc.)
-3. **Execute** the planned action via Playwright
-4. **Verify** result (L0 heuristic: URL, content, no errors)
-5. If verify fails → **Recover** with classified strategies (max 2 per step)
-6. When LLM determines task is complete → extract task-specific **result**
-7. Optional: **Blind Critic** terminal gate (independent LLM YES/NO verification)
+# Info sections
+col_info1, col_info2 = st.columns(2)
 
-**Guards against infinite loops**:
-- Max 10 steps total
-- Max 2 recovery attempts per step (different strategies each time)
-- Max 5 LLM calls per run (budget enforced)
-- Same failure type never retries the same strategy
+with col_info1:
+    with st.expander("🏗️ How it works"):
+        st.markdown("""
+**Agent Loop Architecture:**
+
+1. **Navigate** → Load start URL, verify page renders
+2. **Plan** → LLM analyzes page state (a11y tree + text)
+3. **Act** → Execute planned action (click/type/scroll)
+4. **Observe** → Capture new page state
+5. **Verify** → Check if action had effect
+6. **Reflect** → LLM decides: continue or done?
+7. **Extract** → On completion, extract task-specific result
+
+**Safety Guards:**
+- Max 10 steps per task
+- Max 8 LLM calls (budget enforced)
+- Classified recovery (max 2 strategies per failure)
+- Cost circuit breaker ($0.50/run limit)
 """)
 
-with st.expander("Supported & Limitations", expanded=False):
-    st.markdown("""
-**Works well**:
-- Navigation + content extraction (any public website)
-- Information lookup (Hacker News top stories, Wikipedia articles)
-- Search tasks (DuckDuckGo, Wikipedia search)
-- Page data extraction (httpbin, API responses)
-- Multi-step interactions (search → read results)
+with col_info2:
+    with st.expander("⚡ Capabilities & Limitations"):
+        st.markdown("""
+**Works reliably:**
+- ✅ Navigation + page verification
+- ✅ Content/data extraction
+- ✅ Information lookup (news, wiki)
+- ✅ Search tasks (DuckDuckGo, Wikipedia)
+- ✅ Multi-step interactions
 
-**Known limitations**:
-- No login/CAPTCHA bypass (reports `blocked`)
-- Complex multi-step form fills may be unreliable
-- JavaScript-heavy SPAs may timeout on initial load
-- Geo-restricted sites depend on server location
-- Tab-close does not guarantee immediate cancel (use Stop button)
+**Known limitations:**
+- 🚫 No login/CAPTCHA bypass
+- ⚠️ Complex multi-step forms (flaky)
+- ⚠️ Heavy JS SPAs may timeout
+- ⚠️ Geo-restricted content
+- ⚠️ Requires valid LLM API key
 """)
