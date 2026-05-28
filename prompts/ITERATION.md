@@ -219,3 +219,19 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   transition must be validated, not just LLM outputs. The Browser Agent's "success" status was
   trusted without verifying the final URL matched the expected domain.
 - **Validation**: unit tests, integration tests, e2e smoke test all pass locally.
+
+### `phase4_ux` (2026-05-28)
+- **Failed path**: Fixed 95% confidence displayed for all items (no information value); SEC text
+  readability still poor (wall of plain text); agent concurrent submits risk OOM; incorporation
+  items only linked to generic EDGAR search.
+- **Resolution**:
+  1. **Tier badge UX**: `ItemRecord.segment_method` propagated from `SegmentResult`; UI shows
+     Tier0 method badge + "contract passed" instead of 95% progress bar; low_confidence only
+     shows numeric score
+  2. **Readability**: `_format_sec_text` groups lines into `<p>` paragraphs; serif typography
+     CSS (`.sec-reader`) with max-width and justified text
+  3. **Agent concurrent guard**: disable submit + double-check when agent status is running/queued
+  4. **DEF 14A auto-link**: `find_proxy_filing(cik)` via SEC submissions API; incorporation
+     items show direct link to latest proxy accession
+  5. **README Known Limitations** expanded: ephemeral SQLite, iframe/shadow DOM, gold circularity
+- **Validation**: e2e smoke adds segment_method + PDF detection checks.

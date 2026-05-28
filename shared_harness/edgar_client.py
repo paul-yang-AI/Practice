@@ -325,6 +325,43 @@ def search_filings(
     return results
 
 
+def find_proxy_filing(cik: str) -> dict | None:
+    """Find the most recent DEF 14A (proxy statement) for a CIK.
+
+    Returns dict with keys: accession, filed, form, cik — or None if not found.
+    """
+    import json as _json
+
+    cik_clean = cik.lstrip("0") or "0"
+    padded = cik_clean.zfill(10)
+    url = f"https://data.sec.gov/submissions/CIK{padded}.json"
+    try:
+        resp = _http_get(url)
+        data = _json.loads(resp.text)
+    except Exception as exc:
+        logger.warning("Proxy lookup failed for CIK %s: %s", cik, exc)
+        return None
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    accessions = recent.get("accessionNumber", [])
+    dates = recent.get("filingDate", [])
+
+    for form, accession, filed in zip(forms, accessions, dates):
+        if form in ("DEF 14A", "DEFA14A"):
+            return {
+                "accession": accession,
+                "filed": filed,
+                "form": form,
+                "cik": cik_clean,
+                "url": (
+                    f"https://www.sec.gov/cgi-bin/browse-edgar?"
+                    f"action=getcompany&CIK={cik_clean}&type=DEF+14A&dateb=&owner=include&count=10"
+                ),
+            }
+    return None
+
+
 def reset_throttle_for_tests() -> None:
     global _last_request_at, _user_agent_validated
     with _lock:

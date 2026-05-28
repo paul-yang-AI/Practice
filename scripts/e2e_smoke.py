@@ -61,6 +61,10 @@ def check_sec_pipeline() -> bool:
             use_llm_fallback=False,
         )
         extracted = sum(1 for i in result.items if i.status.value == "extracted")
+        with_method = sum(1 for i in result.items if i.segment_method)
+        if with_method < 5:
+            print(f"FAIL — segment_method not populated ({with_method} items)")
+            return False
         print(f"OK — {extracted} items extracted from {filing['ticker']}")
         return extracted >= 5
     except Exception as exc:
@@ -111,6 +115,26 @@ def check_agent_plan() -> bool:
         return False
 
 
+def check_pdf_detection() -> bool:
+    """Verify PDF/download URL detection without launching browser."""
+    print("[Agent] Testing PDF URL detection...", end=" ")
+    try:
+        from task1_agent.agent.browser import PlaywrightExecutor
+
+        ex = PlaywrightExecutor()
+        if not ex._is_download_url("https://arxiv.org/pdf/2401.12345.pdf"):
+            print("FAIL — PDF URL not detected")
+            return False
+        if ex._is_download_url("https://example.com"):
+            print("FAIL — normal URL flagged as download")
+            return False
+        print("OK")
+        return True
+    except Exception as exc:
+        print(f"FAIL — {exc}")
+        return False
+
+
 def main() -> None:
     load_env()
     print("=" * 60)
@@ -121,6 +145,7 @@ def main() -> None:
         "LLM": check_llm(),
         "SEC Pipeline": check_sec_pipeline(),
         "Agent Planning": check_agent_plan(),
+        "PDF Detection": check_pdf_detection(),
     }
 
     print()

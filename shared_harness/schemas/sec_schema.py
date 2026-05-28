@@ -45,6 +45,7 @@ class ItemRecord(BaseModel):
     status: ItemStatus
     text: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    segment_method: str | None = None
     warnings: list[str] = Field(default_factory=list)
     start: int | None = None
     end: int | None = None

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from shared_harness.edgar_client import search_filings
+from shared_harness.edgar_client import find_proxy_filing, search_filings
 from shared_harness.schemas.sec_schema import ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
@@ -66,7 +66,73 @@ def _status_icon(status: ItemStatus) -> str:
     }.get(status, "❓")
 
 
-def _render_item(item) -> None:
+_METHOD_LABELS: dict[str, tuple[str, str]] = {
+    "toc": ("TOC 錨點", "#059669"),
+    "regex": ("正則匹配", "#2563eb"),
+    "section_name": ("章節名稱", "#7c3aed"),
+    "llm": ("LLM Fallback", "#d97706"),
+    "arbiter": ("LLM 仲裁", "#d97706"),
+}
+
+_SEC_CONTENT_CSS = """
+<style>
+.sec-reader {
+    max-width: 52rem; margin: 0 auto; padding: 1.25rem 1.5rem;
+    font-family: Georgia, "Noto Serif TC", "Source Han Serif TC", serif;
+    font-size: 0.95rem; line-height: 1.75; color: #1f2937;
+    background: #fafafa; border-radius: 8px;
+    max-height: 560px; overflow-y: auto;
+}
+.sec-reader p { margin: 0 0 0.85rem 0; text-align: justify; }
+.sec-reader h4 {
+    color: #1e40af; font-size: 1rem; font-weight: 700;
+    margin: 1.2rem 0 0.5rem 0; font-family: system-ui, sans-serif;
+}
+.sec-reader table {
+    width: 100%; border-collapse: collapse; font-size: 0.82rem;
+    margin: 0.5rem 0 1rem; font-family: system-ui, sans-serif;
+}
+.sec-reader td, .sec-reader th {
+    padding: 0.35rem 0.6rem; border-bottom: 1px solid #e5e7eb;
+}
+.sec-reader ul { margin: 0.3rem 0 0.8rem 1.2rem; padding: 0; }
+.sec-reader li { margin-bottom: 0.25rem; }
+.tier-badge {
+    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 6px;
+    font-size: 0.78rem; font-weight: 600; font-family: system-ui, sans-serif;
+}
+</style>
+"""
+
+
+def _render_quality_badge(item) -> None:
+    """Show tier/method badge; only show numeric confidence when anomalous."""
+    if item.status == ItemStatus.INCORPORATED_BY_REFERENCE:
+        st.markdown(
+            '<span class="tier-badge" style="background:#eef2ff;color:#4338ca;">'
+            "📎 合併引用 · 已偵測</span>",
+            unsafe_allow_html=True,
+        )
+        return
+    if item.status == ItemStatus.LOW_CONFIDENCE or item.confidence < 0.9:
+        st.progress(item.confidence, text=f"⚠️ 低信心：{item.confidence:.0%}")
+        if item.segment_method:
+            label, color = _METHOD_LABELS.get(item.segment_method, (item.segment_method, "#666"))
+            st.caption(f"抽取方式：{label}")
+        return
+    if item.segment_method:
+        label, color = _METHOD_LABELS.get(item.segment_method, (item.segment_method, "#666"))
+        st.markdown(
+            f'<span class="tier-badge" style="background:{color}18;color:{color};">'
+            f"Tier0 · {label}</span> "
+            f'<span style="font-size:0.82rem;color:#6b7280;">契約驗證通過</span>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("✓ 契約驗證通過（span integrity + token ratio）")
+
+
+def _render_item(item, *, cik: str | None = None) -> None:
     icon = _status_icon(item.status)
     color = _status_color(item.status)
     name = _ITEM_NAMES.get(item.item_id, "")
@@ -76,9 +142,9 @@ def _render_item(item) -> None:
         is_page_ref = _is_page_reference_only(item.text)
         suffix = "（交叉引用）" if is_page_ref else ""
         with st.expander(f"{icon} {title}{suffix}", expanded=False):
-            col_conf, col_len = st.columns([2, 1])
-            with col_conf:
-                st.progress(item.confidence, text=f"信心度：{item.confidence:.0%}")
+            col_badge, col_len = st.columns([2, 1])
+            with col_badge:
+                _render_quality_badge(item)
             with col_len:
                 word_count = len(item.text.split())
                 st.caption(f"📝 {word_count:,} 詞 · {len(item.text):,} 字元")
@@ -88,12 +154,10 @@ def _render_item(item) -> None:
                     "📄 此項目為頁碼交叉引用，完整內容位於 PDF 附件中。"
                 )
 
-            # Render text as markdown with basic structure
             formatted = _format_sec_text(item.text)
+            st.markdown(_SEC_CONTENT_CSS, unsafe_allow_html=True)
             st.markdown(
-                f'<div style="border-left: 4px solid {color}; padding-left: 1rem; '
-                f'max-height: 500px; overflow-y: auto; font-size: 0.9rem; '
-                f'line-height: 1.6; background: #fafafa; border-radius: 4px; padding: 1rem;">'
+                f'<div class="sec-reader" style="border-left: 4px solid {color};">'
                 f"{formatted}</div>",
                 unsafe_allow_html=True,
             )
@@ -103,26 +167,52 @@ def _render_item(item) -> None:
 
     elif item.status == ItemStatus.INCORPORATED_BY_REFERENCE:
         with st.expander(f"{icon} {title} — 合併引用", expanded=False):
-            st.progress(item.confidence, text=f"信心度：{item.confidence:.0%}")
+            _render_quality_badge(item)
+            proxy = find_proxy_filing(cik) if cik else None
+            proxy_link = ""
+            if proxy:
+                proxy_edgar = (
+                    f"https://www.sec.gov/cgi-bin/viewer?"
+                    f"action=view&cik={proxy['cik']}&accession_number={proxy['accession']}"
+                    f"&xbrl_type=v"
+                )
+                proxy_link = (
+                    f"<br>偵測到引用來源：<a href='{proxy_edgar}' target='_blank'>"
+                    f"DEF 14A · {proxy['accession']}</a>（{proxy['filed']}）"
+                )
             st.markdown(
                 '<div style="background: #eff6ff; border: 1px solid #bfdbfe; '
                 'border-radius: 8px; padding: 0.8rem 1rem; margin: 0.3rem 0;">'
                 "<strong>📎 合併引用（Incorporated by Reference）</strong><br>"
                 '<span style="font-size: 0.88rem; color: #444; line-height: 1.7;">'
-                "此項目的完整內容引自公司的委託書（Proxy Statement / DEF 14A）或其他文件，"
-                "而非直接列載於 10-K 正文中。此做法符合 SEC 規範。<br>"
-                "完整內容可在 "
-                '<a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=DEF+14A" '
-                'target="_blank">EDGAR DEF 14A 搜尋</a> 查閱。</span></div>',
+                "此項目的完整內容引自公司的委託書（Proxy Statement / DEF 14A），"
+                "而非直接列載於 10-K 正文中。此做法符合 SEC 規範。"
+                f"{proxy_link}</span></div>",
                 unsafe_allow_html=True,
             )
-            if item.text:
-                with st.container():
-                    st.caption("偵測到的引用文字：")
-                    st.code(item.text[:500], language=None)
+            if not proxy:
+                st.caption(
+                    "未找到 DEF 14A — 可在 "
+                    "[EDGAR DEF 14A 搜尋](https://www.sec.gov/cgi-bin/browse-edgar"
+                    "?action=getcompany&type=DEF+14A) 手動查閱。"
+                )
+            ref_text = None
+            snippet = None
             if item.warnings:
                 for w in item.warnings:
-                    st.caption(f"📋 {w}")
+                    if w.startswith("引用原文："):
+                        snippet = w.removeprefix("引用原文：")
+                    elif "Incorporated" in w or "incorporated" in w or "proxy" in w.lower():
+                        ref_text = w
+            if snippet:
+                st.caption("偵測到的引用文字：")
+                st.code(snippet, language=None)
+            elif ref_text:
+                st.caption(f"📋 {ref_text}")
+            for w in item.warnings:
+                if w.startswith("引用原文：") or w == ref_text:
+                    continue
+                st.caption(f"📋 {w}")
 
     elif item.status == ItemStatus.MISSING:
         st.markdown(
@@ -156,38 +246,41 @@ def _is_page_reference_only(text: str) -> bool:
 
 
 def _format_sec_text(text: str) -> str:
-    """Convert raw SEC text into HTML with paragraph breaks, headers, lists, and basic tables."""
+    """Convert raw SEC text into readable HTML with paragraphs, headers, lists, tables."""
     import html as html_mod
     import re
 
     lines = text.strip().split("\n")
     parts: list[str] = []
     in_table = False
+    para_buf: list[str] = []
+
+    def flush_para() -> None:
+        nonlocal para_buf
+        if para_buf:
+            body = " ".join(para_buf)
+            parts.append(f"<p>{html_mod.escape(body)}</p>")
+            para_buf = []
 
     for line in lines:
         stripped = line.strip()
 
         if not stripped:
+            flush_para()
             if in_table:
                 parts.append("</table>")
                 in_table = False
-            parts.append("<br>")
             continue
 
-        # Detect simple tabular rows (multiple columns separated by 2+ spaces or tabs)
         cols = re.split(r"  {2,}|\t{1,}", stripped)
         if len(cols) >= 3 and not stripped.startswith(("•", "-", "*", "(")):
             escaped_cols = [html_mod.escape(c.strip()) for c in cols if c.strip()]
             if len(escaped_cols) >= 3:
+                flush_para()
                 if not in_table:
-                    parts.append(
-                        '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin:0.3rem 0;">'
-                    )
+                    parts.append("<table>")
                     in_table = True
-                cells = "".join(
-                    f'<td style="padding:0.2rem 0.5rem;border-bottom:1px solid #e5e7eb;">{c}</td>'
-                    for c in escaped_cols
-                )
+                cells = "".join(f"<td>{c}</td>" for c in escaped_cols)
                 parts.append(f"<tr>{cells}</tr>")
                 continue
 
@@ -195,28 +288,23 @@ def _format_sec_text(text: str) -> str:
             parts.append("</table>")
             in_table = False
 
-        escaped = html_mod.escape(stripped)
-
-        # Bullet / list items
         if re.match(r"^[•\-\*]\s+", stripped):
+            flush_para()
             content = html_mod.escape(re.sub(r"^[•\-\*]\s+", "", stripped))
-            parts.append(
-                f'<div style="padding-left:1.2rem;text-indent:-0.8rem;margin:0.1rem 0;">• {content}</div>'
-            )
-        # Numbered list items
+            parts.append(f"<ul><li>{content}</li></ul>")
         elif re.match(r"^\d+[\.\)]\s+", stripped):
-            parts.append(
-                f'<div style="padding-left:1.2rem;text-indent:-0.8rem;margin:0.1rem 0;">{escaped}</div>'
-            )
-        # ALL-CAPS headers
+            flush_para()
+            parts.append(f"<ul><li>{html_mod.escape(stripped)}</li></ul>")
         elif stripped.isupper() and 3 < len(stripped) < 120:
-            parts.append(f"<strong style='color:#1e40af;'>{escaped}</strong><br>")
-        # Lines ending with colon as sub-headers
+            flush_para()
+            parts.append(f"<h4>{html_mod.escape(stripped)}</h4>")
         elif stripped.endswith(":") and len(stripped) < 80:
-            parts.append(f"<strong>{escaped}</strong><br>")
+            flush_para()
+            parts.append(f"<h4>{html_mod.escape(stripped)}</h4>")
         else:
-            parts.append(f"{escaped}<br>")
+            para_buf.append(stripped)
 
+    flush_para()
     if in_table:
         parts.append("</table>")
 
@@ -410,7 +498,7 @@ if result:
             continue
         st.markdown(f"### Part {part}")
         for item in items:
-            _render_item(item)
+            _render_item(item, cik=result.cik)
 
     st.divider()
     col_dl1, col_dl2 = st.columns(2)
@@ -428,7 +516,11 @@ if result:
         for item in result.items:
             name = _ITEM_NAMES.get(item.item_id, "")
             md_lines.append(f"## Item {item.item_id} — {name}\n\n")
-            md_lines.append(f"狀態：{item.status.value} | 信心度：{item.confidence:.0%}\n\n")
+            md_lines.append(
+                f"狀態：{item.status.value}"
+                + (f" | 方式：{item.segment_method}" if item.segment_method else "")
+                + "\n\n"
+            )
             if item.text:
                 md_lines.append(item.text[:3000] + "\n\n---\n\n")
         st.download_button(

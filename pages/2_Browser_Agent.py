@@ -98,6 +98,14 @@ def _action_icon(action: str) -> str:
     return "▶️"
 
 
+def _is_agent_running() -> bool:
+    run_id = st.session_state.get("agent_run_id")
+    if not run_id:
+        return False
+    status = _get_run_status(run_id)
+    return status in ("running", "queued")
+
+
 # --- Page Layout ---
 
 st.markdown(
@@ -132,8 +140,17 @@ start_url = st.text_input(
 st.session_state["agent_task_text"] = task
 st.session_state["agent_url_text"] = start_url
 
+_agent_running = _is_agent_running()
+if _agent_running:
+    st.warning("⏳ 已有任務執行中，請等待完成或按「停止」。")
+
 col1, col2 = st.columns([3, 1])
-submit = col1.button("🚀 執行任務", type="primary", use_container_width=True)
+submit = col1.button(
+    "🚀 執行任務",
+    type="primary",
+    use_container_width=True,
+    disabled=_agent_running,
+)
 stop = col2.button("⏹️ 停止", type="secondary", use_container_width=True)
 
 if "agent_run_id" not in st.session_state:
@@ -142,7 +159,9 @@ if "agent_cancel" not in st.session_state:
     st.session_state["agent_cancel"] = None
 
 if submit:
-    if not task.strip():
+    if _agent_running:
+        st.error("已有任務執行中，無法同時啟動多個代理。")
+    elif not task.strip():
         st.error("請輸入任務描述。")
     elif not start_url.strip():
         st.error("請輸入起始 URL。")
@@ -340,6 +359,8 @@ with col_info2:
 **已知限制：**
 - 🚫 無法繞過登入/CAPTCHA
 - 🚫 PDF / 檔案下載型 URL
+- 🚫 跨域 iFrame / Shadow DOM
+- ⚠️ 同時只能執行一個任務（防 OOM）
 - ⚠️ 複雜多步驟表單（不穩定）
 - ⚠️ 重 JS SPA 可能逾時
 - ⚠️ 地理限制內容

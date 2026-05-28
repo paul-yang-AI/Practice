@@ -36,12 +36,16 @@ def validate_segment(
         warnings = list(metrics.warnings)
         if note:
             warnings.append(note)
+        snippet = text.strip()[:400]
+        if snippet:
+            warnings.append(f"引用原文：{snippet}")
         return ItemRecord(
             item_id=seg.item_id,
             part=_part_for_item(seg.item_id),
             status=ItemStatus.INCORPORATED_BY_REFERENCE,
             text=None,
             confidence=0.95,
+            segment_method=seg.method.value,
             warnings=warnings,
             start=seg.start,
             end=seg.end,
@@ -66,6 +70,7 @@ def validate_segment(
             status=status,
             text=new_text,
             confidence=decision.confidence,
+            segment_method="arbiter",
             warnings=remetrics.warnings,
             start=new_start,
             end=new_end,
@@ -78,6 +83,7 @@ def validate_segment(
             status=ItemStatus.LOW_CONFIDENCE,
             text=text,
             confidence=metrics.confidence,
+            segment_method=seg.method.value,
             warnings=metrics.warnings,
             start=seg.start,
             end=seg.end,
@@ -90,6 +96,7 @@ def validate_segment(
         status=ItemStatus.EXTRACTED,
         text=text,
         confidence=metrics.confidence,
+        segment_method=seg.method.value,
         warnings=metrics.warnings,
         start=seg.start,
         end=seg.end,

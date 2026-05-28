@@ -133,11 +133,25 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 
 ### Known Limitations & Failure Cases
 
+**Deployment**
+- **SQLite + WAL**: Zeabur container filesystem is ephemeral — agent run history and cost events reset on redeploy. Eval artifacts live in `reports/*.csv` (git-tracked) and SEC HTML cache on disk for the session.
+- **Playwright memory**: Single concurrent agent run enforced in UI; multiple simultaneous runs may OOM on small containers (~1 GB).
+
+**Browser Agent**
 - **Login / CAPTCHA**: Agent reports `blocked` immediately; no bypass attempted
+- **PDF / download URLs**: Detected and rejected before navigation (e.g. `arxiv.org/pdf/...`)
+- **iFrame / Shadow DOM**: Not supported — a11y tree may miss embedded content
 - **Multi-step search**: Wikipedia/DuckDuckGo may exhaust `max_steps=10` under complex scenarios; mitigations: `OPENROUTER_API_KEY` for fallback, `max_llm_calls=25`
 - **Blind Critic off by default**: Zeabur uses L0 verify only; enable `ENABLE_BLIND_CRITIC=true` for stricter terminal gate (L2 tested)
 - **Dynamic SPAs**: DOM may not stabilize within timeout; `extend_wait` recovery
 - **Tab-close**: Use Stop button; tab close does not guarantee cancel
+
+**SEC 10-K**
+- **Confidence score**: Fixed 0.95 when contract checks pass — UI shows tier badge (regex/TOC/section_name) instead
+- **Gold eval circularity**: Train gold boundaries regenerated from pipeline output (±5 char tolerance); held-out relies on contract metrics
+- **Normalize flattens HTML**: Tables lose structure during extraction; readability improved via presentation-layer formatting
+- **Incorporated by reference**: Content not inlined (anti-hallucination); DEF 14A auto-linked when CIK known
+- **Naive LLM baseline**: Estimated from literature, not measured API calls
 
 ## Task 2: SEC 10-K
 
