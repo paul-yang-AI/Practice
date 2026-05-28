@@ -222,22 +222,47 @@ def resolve_filing_url(accession: str, cik: str | None = None) -> tuple[str, str
     return primary, cik_clean
 
 
+def build_sec_viewer_url(
+    accession: str,
+    *,
+    cik: str | None = None,
+    anchor: str | None = None,
+) -> str:
+    """Interactive EDGAR viewer URL for a filing, optionally scrolled to an anchor."""
+    cik_clean = (cik or cik_from_accession(accession)).lstrip("0") or "0"
+    url = (
+        "https://www.sec.gov/cgi-bin/viewer"
+        f"?action=view&cik={cik_clean}&accession_number={accession}&xbrl_type=v"
+    )
+    if anchor:
+        url = f"{url}#{anchor}"
+    return url
+
+
+def build_sec_document_url(source_url: str, anchor: str | None = None) -> str:
+    """Direct filing document URL with optional fragment anchor."""
+    if anchor:
+        return f"{source_url}#{anchor}"
+    return source_url
+
+
 def fetch_filing_html(
     accession: str,
     url: str | None = None,
     *,
     cik: str | None = None,
     force_refresh: bool = False,
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, str | None]:
     """Fetch filing HTML from EDGAR.
 
     Returns:
-        (html_content, resolved_cik) — resolved_cik may differ from input cik.
+        (html_content, resolved_cik, source_url) — source_url is the primary document URL.
     """
     path = cache_path(accession)
 
     if not force_refresh and path.exists():
-        return path.read_text(encoding="utf-8", errors="replace"), cik
+        resolved_url = url
+        return path.read_text(encoding="utf-8", errors="replace"), cik, resolved_url
 
     resolved_cik = cik
     if not url:
@@ -255,7 +280,7 @@ def fetch_filing_html(
 
     html = response.text
     path.write_text(html, encoding="utf-8")
-    return html, resolved_cik
+    return html, resolved_cik, url
 
 
 def search_filings(

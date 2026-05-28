@@ -29,7 +29,7 @@ def test_edgar_cache_hit_zero_network(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setattr(edgar_client, "_CACHE_DIR", tmp_path)
 
     with patch("httpx.Client.get") as mock_get:
-        html, _cik = fetch_filing_html(accession, url="https://sec.gov/example")
+        html, _cik, _url = fetch_filing_html(accession, url="https://sec.gov/example")
         mock_get.assert_not_called()
 
     assert "cached" in html

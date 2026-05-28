@@ -8,6 +8,8 @@ from pathlib import Path
 import streamlit as st
 
 from shared_harness.edgar_client import (
+    build_sec_document_url,
+    build_sec_viewer_url,
     find_proxy_filing,
     format_filing_search_label,
     search_filings,
@@ -102,6 +104,19 @@ _SEC_CONTENT_CSS = """
 }
 .sec-reader ul { margin: 0.3rem 0 0.8rem 1.2rem; padding: 0; }
 .sec-reader li { margin-bottom: 0.25rem; }
+.sec-html-viewer {
+    max-width: 52rem; margin: 0 auto; padding: 0.75rem 1rem;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.82rem; line-height: 1.45; color: #111;
+    background: #fff; border-radius: 8px; border: 1px solid #e5e7eb;
+    max-height: 560px; overflow: auto;
+}
+.sec-html-viewer table {
+    width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem;
+}
+.sec-html-viewer td, .sec-html-viewer th {
+    padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; vertical-align: top;
+}
 .tier-badge {
     display: inline-block; padding: 0.15rem 0.55rem; border-radius: 6px;
     font-size: 0.78rem; font-weight: 600; font-family: system-ui, sans-serif;
@@ -137,7 +152,27 @@ def _render_quality_badge(item) -> None:
         st.caption("✓ 契約驗證通過（span integrity + token ratio）")
 
 
-def _render_item(item, *, cik: str | None = None) -> None:
+def _sec_item_links(
+    *,
+    accession: str | None,
+    cik: str | None,
+    source_url: str | None,
+    anchor: str | None,
+) -> tuple[str | None, str | None]:
+    if not accession:
+        return None, None
+    viewer = build_sec_viewer_url(accession, cik=cik, anchor=anchor)
+    document = build_sec_document_url(source_url, anchor) if source_url else None
+    return viewer, document
+
+
+def _render_item(
+    item,
+    *,
+    cik: str | None = None,
+    accession: str | None = None,
+    source_url: str | None = None,
+) -> None:
     icon = _status_icon(item.status)
     color = _status_color(item.status)
     name = _ITEM_NAMES.get(item.item_id, "")
@@ -159,13 +194,43 @@ def _render_item(item, *, cik: str | None = None) -> None:
                     "📄 此項目為頁碼交叉引用，完整內容位於 PDF 附件中。"
                 )
 
-            formatted = _format_sec_text(item.text)
-            st.markdown(_SEC_CONTENT_CSS, unsafe_allow_html=True)
-            st.markdown(
-                f'<div class="sec-reader" style="border-left: 4px solid {color};">'
-                f"{formatted}</div>",
-                unsafe_allow_html=True,
+            viewer_url, document_url = _sec_item_links(
+                accession=accession,
+                cik=cik,
+                source_url=source_url,
+                anchor=item.source_anchor,
             )
+            link_cols = st.columns([1, 1, 2])
+            with link_cols[0]:
+                if viewer_url:
+                    st.link_button("🔗 在 SEC 查看", viewer_url, use_container_width=True)
+            with link_cols[1]:
+                if document_url:
+                    st.link_button("📄 原始 HTML", document_url, use_container_width=True)
+
+            tab_text, tab_html = st.tabs(["📝 結構化文字", "📊 原始 HTML 片段"])
+            with tab_text:
+                formatted = _format_sec_text(item.text)
+                st.markdown(_SEC_CONTENT_CSS, unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="sec-reader" style="border-left: 4px solid {color};">'
+                    f"{formatted}</div>",
+                    unsafe_allow_html=True,
+                )
+            with tab_html:
+                if item.html_snippet:
+                    st.caption("保留原始表格與排版（來自 EDGAR HTML 片段）")
+                    st.markdown(_SEC_CONTENT_CSS, unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="sec-html-viewer" style="border-left: 4px solid {color};">'
+                        f"{item.html_snippet}</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.info(
+                        "此項目無法對應 HTML 片段（可能缺少錨點或標題）。"
+                        "請使用上方「在 SEC 查看」開啟官方原文。"
+                    )
 
             if item.warnings:
                 st.caption("⚠️ " + " · ".join(item.warnings))
@@ -439,7 +504,7 @@ elif _run_source == "custom":
 if _run_source:
     with st.spinner(f"正在抽取 {accession}…"):
         try:
-            html, resolved_cik = fetch_filing_html(
+            html, resolved_cik, source_url = fetch_filing_html(
                 accession,
                 url=filing_url,
                 cik=cik,
@@ -452,6 +517,7 @@ if _run_source:
                 accession=accession,
                 cik=display_cik,
                 ticker=ticker,
+                source_url=source_url or filing_url,
                 use_arbiter=use_arbiter,
                 run_id=None,
             )
@@ -474,6 +540,12 @@ if result:
 
     # Filing metadata card
     html_len = st.session_state.get("sec_html_len", 0)
+    filing_viewer = build_sec_viewer_url(result.accession, cik=result.cik)
+    doc_link = ""
+    if result.source_url:
+        doc_link = (
+            f' &nbsp;|&nbsp; <a href="{result.source_url}" target="_blank">原始文件</a>'
+        )
     st.markdown(
         f'<div style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%); '
         f'border-radius: 12px; padding: 1.2rem; margin-bottom: 1rem;">'
@@ -481,7 +553,9 @@ if result:
         f'<span style="color:#666;">CIK: {result.cik or "N/A"} &nbsp;|&nbsp; '
         f'Accession: {result.accession}</span><br>'
         f'<span style="font-size: 0.85rem; color: #888;">'
-        f'Source: {html_len:,} chars HTML</span></div>',
+        f'Source: {html_len:,} chars HTML &nbsp;|&nbsp; '
+        f'<a href="{filing_viewer}" target="_blank">SEC 互動式檢視器</a>'
+        f'{doc_link}</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -520,7 +594,12 @@ if result:
             continue
         st.markdown(f"### Part {part}")
         for item in items:
-            _render_item(item, cik=result.cik)
+            _render_item(
+                item,
+                cik=result.cik,
+                accession=result.accession,
+                source_url=result.source_url,
+            )
 
     st.divider()
     col_dl1, col_dl2 = st.columns(2)

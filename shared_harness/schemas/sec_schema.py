@@ -44,6 +44,8 @@ class ItemRecord(BaseModel):
     part: str | None = None
     status: ItemStatus
     text: str | None = None
+    html_snippet: str | None = None
+    source_anchor: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
     segment_method: str | None = None
     warnings: list[str] = Field(default_factory=list)
@@ -55,4 +57,5 @@ class FilingExtraction(BaseModel):
     accession: str
     cik: str | None = None
     ticker: str | None = None
+    source_url: str | None = None
     items: list[ItemRecord]

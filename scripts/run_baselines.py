@@ -352,7 +352,7 @@ def main() -> None:
         print(f"Filing: {ticker} ({accession})")
         print(f"{'=' * 84}")
 
-        html, _resolved_cik = fetch_filing_html(accession, url=url, cik=cik)
+        html, _resolved_cik, _source_url = fetch_filing_html(accession, url=url, cik=cik)
 
         # --- Regex-Only ---
         t0 = time.perf_counter()

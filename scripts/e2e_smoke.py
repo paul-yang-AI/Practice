@@ -48,7 +48,7 @@ def check_sec_pipeline() -> bool:
             (_ROOT / "task2_sec" / "eval" / "manifest.json").read_text(encoding="utf-8")
         )
         filing = manifest["filings"][0]
-        html, _cik = fetch_filing_html(filing["accession"])
+        html, _cik, _url = fetch_filing_html(filing["accession"])
         if len(html) < 1000:
             print(f"FAIL — cached HTML too small ({len(html)} chars)")
             return False

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from shared_harness.schemas.sec_schema import FilingExtraction
+from task2_sec.pipeline.html_snippet import attach_html_snippets
 from task2_sec.pipeline.segment import Segmenter
 from task2_sec.pipeline.validate import validate_segments
 
@@ -13,6 +14,7 @@ def extract_from_html(
     accession: str = "",
     cik: str | None = None,
     ticker: str | None = None,
+    source_url: str | None = None,
     run_id: str | None = None,
     use_arbiter: bool = False,
     use_llm_fallback: bool = True,
@@ -21,4 +23,11 @@ def extract_from_html(
         html, run_id=run_id, use_llm_fallback=use_llm_fallback
     )
     items = validate_segments(body, segments, run_id=run_id, use_arbiter=use_arbiter)
-    return FilingExtraction(accession=accession, cik=cik, ticker=ticker, items=items)
+    attach_html_snippets(html, body, segments, items)
+    return FilingExtraction(
+        accession=accession,
+        cik=cik,
+        ticker=ticker,
+        source_url=source_url,
+        items=items,
+    )

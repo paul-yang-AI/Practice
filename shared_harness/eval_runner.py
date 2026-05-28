@@ -208,7 +208,7 @@ def evaluate_filing(
     required_items: list[str] | None = None,
 ) -> FilingEvalResult:
     accession = filing["accession"]
-    html, _resolved_cik = fetch_filing_html(accession)
+    html, _resolved_cik, _source_url = fetch_filing_html(accession)
     extraction = extract_from_html(
         html,
         accession=accession,
