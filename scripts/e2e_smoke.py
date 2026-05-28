@@ -77,6 +77,7 @@ def check_agent_plan() -> bool:
     print("[Agent] Testing LLM planning...", end=" ")
     try:
         from shared_harness.llm_router import complete
+        from shared_harness.prompt_loader import load_prompt
         from shared_harness.schemas.common import AgentAction
 
         result = complete(
@@ -85,10 +86,7 @@ def check_agent_plan() -> bool:
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You are a browser automation planner. "
-                        "Plan the next action as JSON: {done, action, selector, value, reasoning, result}"
-                    ),
+                    "content": load_prompt("agent_plan"),
                 },
                 {
                     "role": "user",

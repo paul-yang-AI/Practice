@@ -61,6 +61,7 @@ def extract_from_page(
     """One LLM call to pull an answer from visible page content."""
     from shared_harness.cost_tracker import BudgetExceededError
     from shared_harness.llm_router import AllProvidersFailed, complete
+    from shared_harness.prompt_loader import load_prompt
 
     page_snippet = page_context_snippet(page_text, PAGE_CONTEXT_MAX)
     tree_snippet = compress_a11y(a11y_tree, max_chars=A11Y_CONTEXT_MAX) if a11y_tree else ""
@@ -68,15 +69,7 @@ def extract_from_page(
     messages = [
         {
             "role": "system",
-            "content": (
-                "You extract information from web page content. "
-                "IMPORTANT: Do NOT ask the user questions. All information is on the page.\n"
-                "Use ONLY text that appears on the page — copy phrases verbatim where possible. "
-                "Do NOT invent facts not present in the content.\n"
-                "For summarize requests: return a short answer built from visible headings and "
-                "sentences on the page (quoted snippets), not a generic essay.\n"
-                "Return JSON: {\"result\": \"...\"}"
-            ),
+            "content": load_prompt("agent_extract"),
         },
         {
             "role": "user",

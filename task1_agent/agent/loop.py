@@ -76,6 +76,7 @@ def _plan_next_action(
     Returns dict with action spec if planning succeeds.
     """
     from shared_harness.llm_router import AllProvidersFailed, complete
+    from shared_harness.prompt_loader import load_prompt
     from shared_harness.schemas.common import AgentAction
 
     tree_snippet = compress_a11y(a11y_tree, max_chars=8000) if a11y_tree else ""
@@ -84,27 +85,7 @@ def _plan_next_action(
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are a browser automation planner. Given a task and the current page state, "
-                "decide the next action. If the task is already complete, set done=true and "
-                "provide the result.\n\n"
-                "IMPORTANT: Do NOT ask the user questions. All necessary information is on the page. "
-                "Complete the task to the best of your abilities.\n\n"
-                "Available actions: click, type, scroll, press_key, navigate, none\n"
-                "- click: selector = text/label of element to click\n"
-                "- type: selector = input placeholder/label, value = text to type\n"
-                "  (for search/find tasks, Enter is pressed automatically after type)\n"
-                "- press_key: value = key name (Enter, Tab, Escape)\n"
-                "- scroll: scroll down to reveal more content\n"
-                "- navigate: value = URL to go to\n\n"
-                "Rules:\n"
-                "- If the page shows the expected result, set done=true\n"
-                "- When done=true, fill 'result' with the task answer extracted from the page "
-                "(e.g., the text found, the data extracted, the title, the search results)\n"
-                "- Be specific with selectors (use visible text/labels)\n"
-                "- Do NOT repeat the same failed action\n"
-                "- Output valid JSON only, no markdown"
-            ),
+            "content": load_prompt("agent_plan"),
         },
         {
             "role": "user",

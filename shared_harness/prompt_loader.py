@@ -12,7 +12,7 @@ def load_prompt(name: str, *, variant: str | None = None) -> str:
     """
     Load a prompt by name.
 
-    name: recovery | boundary_arbiter | blind_critic | agent_plan
+    name: recovery | boundary_arbiter | blind_critic | agent_plan | agent_extract | sec_segment_fallback
     variant: FailureType.value for recovery fragments in sops/recovery.md
     Prefer prompts/sops/{name}.md; fallback prompts/v1_{name}.txt
     """

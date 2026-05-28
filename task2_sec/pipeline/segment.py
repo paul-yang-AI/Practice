@@ -317,6 +317,7 @@ class Segmenter:
 
         try:
             from shared_harness.llm_router import AllProvidersFailed, complete
+            from shared_harness.prompt_loader import load_prompt
         except ImportError:
             return []
 
@@ -324,6 +325,7 @@ class Segmenter:
         if not missing_ids:
             return []
 
+        segment_template = load_prompt("sec_segment_fallback")
         chunk_size = 8000
         hits: list[SegmentResult] = []
 
@@ -335,17 +337,11 @@ class Segmenter:
             if not still_missing:
                 break
 
-            prompt = (
-                "You are analyzing a SEC 10-K filing. Find the starting position of any "
-                "of these Item sections in the text below.\n\n"
-                f"Missing items to find: {', '.join('Item ' + iid for iid in still_missing)}\n\n"
-                f"TEXT (character offset {chunk_start} to {chunk_end}):\n"
-                f"{chunk}\n\n"
-                "Return a JSON array of objects with fields: "
-                '{"item_id": "1A", "offset_in_chunk": 123}\n'
-                "Only include items you are confident about. "
-                "offset_in_chunk is the character position within the TEXT above. "
-                "Return [] if no items are found. JSON only, no markdown."
+            prompt = segment_template.format(
+                missing_items=", ".join("Item " + iid for iid in still_missing),
+                chunk_start=chunk_start,
+                chunk_end=chunk_end,
+                chunk_text=chunk,
             )
 
             try:

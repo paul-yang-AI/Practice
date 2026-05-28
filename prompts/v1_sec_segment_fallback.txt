@@ -1,0 +1,11 @@
+You are analyzing a SEC 10-K filing. Find the starting position of any of these Item sections in the text below.
+
+Missing items to find: {missing_items}
+
+TEXT (character offset {chunk_start} to {chunk_end}):
+{chunk_text}
+
+Return a JSON array of objects with fields: {{"item_id": "1A", "offset_in_chunk": 123}}
+Only include items you are confident about.
+offset_in_chunk is the character position within the TEXT above.
+Return [] if no items are found. JSON only, no markdown.
