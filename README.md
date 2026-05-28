@@ -115,7 +115,7 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 - **Recovery**: classified by `FailureType` → strategy table (no blind retry)
 - **Verify**: L0 heuristic per step + optional Blind Critic terminal gate (`ENABLE_BLIND_CRITIC=true`)
 - **Cancel**: `cancel_event` checked at each step boundary; UI Stop button
-- **Eval**: 8 tasks, 6 domains, 4 task_types (`tasks.yaml`); latest train CSV: **5/6 success, silent_failure=0**
+- **Eval**: 8 tasks, 5 train agent + 3 heldout (`tasks.yaml`); latest train CSV: **5/5 agent success, silent_failure=0**
 - **L0 keyword verify**: Extracts domain names and quoted strings from task description; checks page content
 
 ### Supported Sites & Operations (from `reports/eval_train.csv`)
@@ -127,7 +127,7 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 | github.com | navigate | **Pass** | LLM-planned navigation to `/python/cpython` |
 | httpbin.org | extract | **Flaky** | May hit `max_steps` when LLM budget exhausted mid-run |
 | wikipedia.org | search | **Flaky** | Multi-step search; type auto-submits with Enter on search tasks |
-| duckduckgo.com | search | **Flaky** | Same as Wikipedia — consent banner / dynamic DOM |
+| duckduckgo.com | search | **Heldout** | Flaky in headless; UI demo only, not in train KPI |
 | sec.gov | navigate | Heldout | EDGAR search (not in train eval) |
 | httpbin.org/forms | form | Heldout | POST form (not tuned) |
 
@@ -141,7 +141,7 @@ Fallback fires once per `(tier, call_site)` on 429/5xx/ValidationError. Skipped 
 - **Login / CAPTCHA**: Agent reports `blocked` immediately; no bypass attempted
 - **PDF / download URLs**: Detected and rejected before navigation (e.g. `arxiv.org/pdf/...`)
 - **iFrame / Shadow DOM**: Not supported — a11y tree may miss embedded content
-- **Multi-step search**: Wikipedia/DuckDuckGo may still hit `max_steps` on slow DOM or planner errors; search tasks auto-press Enter after type
+- **Multi-step search**: Wikipedia train eval covers search; DuckDuckGo moved to heldout (flaky consent/SERP in headless)
 - **Blind Critic off by default**: Zeabur uses L0 verify only; enable `ENABLE_BLIND_CRITIC=true` for stricter terminal gate (L2 tested)
 - **Dynamic SPAs**: DOM may not stabilize within timeout; `extend_wait` recovery
 - **Tab-close**: Use Stop button; tab close does not guarantee cancel

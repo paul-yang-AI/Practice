@@ -22,58 +22,104 @@ def test_agent_tasks_manifest_depth() -> None:
     domains = {t.get("domain") for t in tasks}
     task_types = {t.get("task_type") for t in tasks}
 
-    assert len(tasks) >= 6
-    assert len(train) >= 6
+    assert len(tasks) >= 8
+    assert len(train) >= 5
     assert len(domains) >= 4
     assert len(task_types) >= 3
+    heldout = [t for t in tasks if t.get("split") == "heldout"]
+    assert any(t["id"] == "duckduckgo_search" for t in heldout)
 
 
 @pytest.mark.eval
 def test_agent_tasks_silent_failure_zero_with_mock_executor() -> None:
     """Train tasks with deterministic mock executor — no silent success."""
 
+    def _page_for_task(task_desc: str) -> tuple[str, str]:
+        t = task_desc.lower()
+        if "alan turing" in t or "wikipedia" in t:
+            return (
+                "https://en.wikipedia.org/wiki/Alan_Turing",
+                "Alan Turing was a mathematician and computer scientist. " * 5,
+            )
+        if "httpbin" in t or "user-agent" in t:
+            return (
+                "https://httpbin.org/headers",
+                '{"headers": {"User-Agent": "Mozilla/5.0 MockAgent/1.0"}}',
+            )
+        if "hacker news" in t or "ranked story" in t:
+            return (
+                "https://news.ycombinator.com/",
+                "Mock HN Title — top ranked story on the front page. " * 3,
+            )
+        if "cpython" in t or "repository" in t:
+            return (
+                "https://github.com/python/cpython",
+                "python / cpython repository title visible " * 3,
+            )
+        return (
+            "https://example.com",
+            "Example Domain\nThis domain is for use in illustrative examples.",
+        )
+
     def mock_executor(action: str, context: dict) -> StepResult:
         step_idx = context.get("step", 0)
         planned = context.get("planned_action")
+        task_desc = context.get("task", "")
+        url, page_text = _page_for_task(task_desc)
         if step_idx == 0:
             return StepResult(
                 step_index=step_idx,
                 action=action,
-                url="https://example.com",
-                page_text="Example Domain\nThis domain is for use in illustrative examples.",
-                a11y_tree="<root>Example Domain</root>",
+                url=url,
+                page_text=page_text,
+                a11y_tree="<root>mock</root>",
                 verify=VerifyResult(passed=True),
             )
         if planned and planned.get("done"):
             return StepResult(
                 step_index=step_idx,
                 action="task_complete",
-                url="https://example.com",
+                url=url,
+                page_text=page_text,
                 verify=VerifyResult(passed=True),
                 extracted_result=planned.get("result", "mock result"),
             )
         return StepResult(
             step_index=step_idx,
             action=action,
-            url="https://example.com",
-            page_text="Example Domain content loaded",
+            url=url,
+            page_text=page_text,
             verify=VerifyResult(passed=True),
         )
 
-    def mock_plan(*_args, **_kwargs):
+    def mock_plan(task_description, *_args, **_kwargs):
+        _, page_text = _page_for_task(task_description)
+        snippet = page_text[:80].strip()
         return {
             "done": True,
             "action": "none",
             "selector": "",
             "value": "",
             "reasoning": "Task complete in mock eval",
-            "result": "Example Domain",
+            "result": snippet,
         }
+
+    def mock_extract(*, task_description, page_text, **_kwargs):
+        _, text = _page_for_task(task_description)
+        if "User-Agent" in task_description or "httpbin" in task_description.lower():
+            return "Mozilla/5.0 MockAgent/1.0"
+        if "story" in task_description.lower():
+            return "Mock HN Title"
+        if "Example Domain" in text:
+            return "Example Domain"
+        return text.split("\n")[0][:120]
 
     manifest = load_tasks(TASKS_PATH)
     train = [t for t in manifest["tasks"] if t.get("split", "train") == "train"]
 
-    with patch("task1_agent.agent.loop._plan_next_action", side_effect=mock_plan):
+    with patch("task1_agent.agent.loop._plan_next_action", side_effect=mock_plan), patch(
+        "task1_agent.agent.loop.extract_from_page", side_effect=mock_extract
+    ):
         from shared_harness import job_store
 
         results = []

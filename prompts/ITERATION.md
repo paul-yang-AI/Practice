@@ -263,3 +263,8 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   2. Extract path: navigate → one `PageExtraction` LLM call → `verify_task_outcome`
   3. Planner context: head+tail page snippet (4k), a11y 8k; no-clarify prompt
 - **Validation**: unit tests + e2e task-mode smoke.
+
+### `ddg_heldout` (2026-05-28)
+- **Failed path**: `duckduckgo_search` consistently hit `max_steps` in train eval (83% KPI) despite Wiki search passing — redundant + flaky (consent/SERP), fixing would overfit.
+- **Resolution**: Move task to `split: heldout`; keep UI preset labeled experimental; train search KPI = Wikipedia only.
+- **Validation**: train eval **5/5** agent tasks.

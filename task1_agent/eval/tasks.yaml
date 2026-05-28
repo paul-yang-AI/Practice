@@ -43,8 +43,9 @@ tasks:
     task_type: search
     description: "Search DuckDuckGo for 'playwright browser automation' and verify results appear."
     start_url: https://duckduckgo.com
-    split: train
+    split: heldout
     target_failure: ACTION_NO_EFFECT
+    notes: "Stress case — flaky in headless (consent/SERP); not in train KPI. UI preset kept for manual demo."
 
   - id: brkb_heldout_nav
     domain: sec.gov

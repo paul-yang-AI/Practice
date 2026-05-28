@@ -39,7 +39,7 @@ _PRESETS = [
         "category": "search",
     },
     {
-        "label": "🔍 DuckDuckGo — 搜尋查詢",
+        "label": "🔍 DuckDuckGo — 搜尋查詢（實驗，不穩定）",
         "task": "Search DuckDuckGo for 'playwright browser automation' and verify results appear.",
         "url": "https://duckduckgo.com",
         "category": "search",
@@ -357,7 +357,7 @@ with col_info2:
 - ✅ 頁面導航 + 驗證
 - ✅ 內容/資料抽取
 - ✅ 資訊查詢（新聞、維基）
-- ✅ 搜尋任務（DuckDuckGo、Wikipedia）
+- ✅ 搜尋任務（Wikipedia；DuckDuckGo 僅 demo，不計 eval）
 - ✅ 多步驟互動
 
 **已知限制：**

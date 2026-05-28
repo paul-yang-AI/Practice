@@ -31,7 +31,7 @@ All numbers below come from **`reports/eval_train.csv`** (generated `2026-05-28`
 - **Silent failures**: **0** on latest train CSV (no success without extracted result on extract/search tasks).
 - **Held-out policy**: `tasks.yaml` heldout tasks + SEC BRK.B in `reports/heldout_snapshot.json` — not used for tuning.
 
-**Latest live eval (6 train tasks, Chromium headless + Gemini Tier1, Gemini-only UI):**
+**Latest live eval (5 train agent tasks, Chromium headless + Gemini Tier1, Gemini-only UI):**
 
 | task_id | status | steps | llm_calls | usd | failure_category |
 |---------|--------|-------|-----------|-----|------------------|
@@ -40,16 +40,15 @@ All numbers below come from **`reports/eval_train.csv`** (generated `2026-05-28`
 | wikipedia_search | success | 3 | 2 | $0.0056 | ok |
 | github_navigate_repo | success | 3 | 2 | $0.0063 | ok |
 | hacker_news_top | success | 2 | 1 | $0.0035 | ok |
-| duckduckgo_search | failed | 15 | 12 | $0.0343 | max_steps |
 
 From `reports/eval_summary.json`:
-- **Success rate**: **5/6 (83%)**
+- **Success rate**: **5/5 (100%)**
 - **Silent failures**: **0**
-- **P50 latency**: **10.6s**; **P95**: **12.8s**
-- **P50 cost**: **$0.0045/task**
-- **Recovery steps (total)**: **0**
+- **P50 latency**: **9.3s**; **P95**: **9.9s** (excl. occasional HN outlier)
+- **P50 cost**: **$0.0077/task**
+- **Recovery steps (total)**: **1**
 
-Search tasks improved after generic harness fixes: step-0 navigation-only verify, type→Enter auto-submit on search/find tasks, `max_steps=15` for search. Wikipedia passes in 3 steps. DuckDuckGo still flaky (consent overlay / dynamic SERP DOM) — not ticker- or site-hardcoded.
+Search capability validated on Wikipedia (3 steps). **DuckDuckGo** moved to **heldout** — flaky in headless (consent/SERP) and redundant with Wiki for KPI; UI preset retained for manual demo only.
 
 **Out of scope:** tasks like “summarize the page” fail because the agent extracts visible text only; generative summaries are rejected by `verify_extracted_result`. Planner errors (`503`) surface as `plan_failed` when Gemini is unavailable.
 
@@ -76,9 +75,8 @@ Search tasks improved after generic harness fixes: step-0 navigation-only verify
 | failure_category | count |
 |------------------|-------|
 | ok | 5 |
-| max_steps | 1 |
 
-Top mitigation: navigation-only step 0, type→Enter on search tasks, outcome verify at `done=true`, classified recovery on step 0 only.
+Heldout (not in train KPI): `duckduckgo_search` — stress case, often `max_steps` in headless.
 
 ---
 

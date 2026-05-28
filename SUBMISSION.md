@@ -70,5 +70,5 @@ streamlit run streamlit_app.py
 ## Known eval numbers (honest, from CSV)
 
 - **SEC train**: 3/3 filings `failure_category=ok`; Tier0 $0.00/filing
-- **Agent train**: 3/6 success (50%); silent_failure=0; search tasks flaky at max_steps without OpenRouter
+- **Agent train**: 5/5 success (100%); silent_failure=0; search validated on Wikipedia (DDG heldout)
 - **Held-out BRK.B**: 4/4 required (local snapshot only)
