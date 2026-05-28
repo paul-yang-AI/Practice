@@ -8,7 +8,9 @@ from task2_sec.pipeline.run import extract_from_html
 @pytest.mark.integration
 def test_pipeline_tier0_only_zero_llm(mini_10k_html: str) -> None:
     with patch("shared_harness.llm_router.litellm.completion") as mock_completion:
-        result = extract_from_html(mini_10k_html, accession="test-000", use_arbiter=False)
+        result = extract_from_html(
+            mini_10k_html, accession="test-000", use_arbiter=False, use_llm_fallback=False
+        )
         mock_completion.assert_not_called()
     extracted = [i for i in result.items if i.status.value == "extracted"]
     assert len(extracted) >= 2

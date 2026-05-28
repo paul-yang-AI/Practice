@@ -46,6 +46,13 @@ _SECTION_NAME_MAP: list[tuple[str, str]] = [
 ]
 
 
+STANDARD_10K_ITEMS = [
+    "1", "1A", "1B", "1C", "2", "3", "4",
+    "5", "6", "7", "7A", "8",
+    "9", "9A", "9B",
+    "10", "11", "12", "13", "14", "15", "16",
+]
+
 _PAGE_REF_RE = re.compile(r"(?:Pages?|pp?\.?)\s*[\d\-–,\s]+", re.IGNORECASE)
 _ITEM_LINE_RE = re.compile(r"Item\s+\d+[A-Z]?\.", re.IGNORECASE)
 
@@ -66,6 +73,7 @@ class SegmentMethod(str, Enum):
     TOC = "toc"
     REGEX = "regex"
     SECTION_NAME = "section_name"
+    LLM = "llm"
 
 
 class SegmentResult(BaseModel):
@@ -87,26 +95,47 @@ def _normalize_item_id(raw: str) -> str:
 
 
 class Segmenter:
-    def segment(self, html: str) -> tuple[str, list[SegmentResult]]:
+    def segment(
+        self,
+        html: str,
+        *,
+        run_id: str | None = None,
+        use_llm_fallback: bool = True,
+    ) -> tuple[str, list[SegmentResult]]:
         body = normalize(html)
         toc_hits = self._segment_from_toc(html, body)
         regex_hits = self._segment_from_regex(body)
         merged = self._merge_segments(toc_hits, regex_hits, len(body))
 
-        # Fallback: if coverage is too low, regex likely only found TOC entries
         coverage = sum(s.end - s.start for s in merged) if merged else 0
         coverage_ratio = coverage / max(len(body), 1)
-        needs_fallback = len(merged) < 3 or coverage_ratio < 0.10
+        needs_name_fallback = len(merged) < 3 or coverage_ratio < 0.10
 
-        if needs_fallback:
+        if needs_name_fallback:
             name_hits = self._segment_from_section_names(body)
             if name_hits:
                 name_ids = {s.item_id for s in name_hits}
                 supplementary = [s for s in merged if s.item_id not in name_ids]
                 merged = self._merge_segments(name_hits, supplementary, len(body))
 
-        # Post-merge: replace page-reference-only segments with section_name hits
         merged = self._upgrade_short_segments(body, merged)
+
+        found_ids = {s.item_id for s in merged}
+        missing_count = sum(1 for iid in STANDARD_10K_ITEMS if iid not in found_ids)
+        coverage = sum(s.end - s.start for s in merged) if merged else 0
+        coverage_ratio = coverage / max(len(body), 1)
+        needs_llm = use_llm_fallback and (missing_count > 5 or coverage_ratio < 0.30)
+
+        if needs_llm:
+            llm_hits = self._segment_from_llm(body, found_ids, run_id=run_id)
+            if llm_hits:
+                for lh in llm_hits:
+                    if lh.item_id not in found_ids:
+                        merged.append(lh)
+                        found_ids.add(lh.item_id)
+                merged = sorted(merged, key=lambda s: s.start)
+                for i, seg in enumerate(merged):
+                    seg.end = merged[i + 1].start if i + 1 < len(merged) else len(body)
 
         return body, merged
 
@@ -268,3 +297,94 @@ class Segmenter:
             end = ordered[i + 1].start if i + 1 < len(ordered) else body_len
             seg.end = end
         return ordered
+
+    def _segment_from_llm(
+        self,
+        body: str,
+        already_found: set[str],
+        *,
+        run_id: str | None = None,
+    ) -> list[SegmentResult]:
+        """LLM fallback: ask the model to identify item boundaries in a text chunk.
+
+        Only invoked when Tier0 methods found < 50% of standard items.
+        The LLM returns character offsets — text is always body[start:end].
+        """
+        import json as _json
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            from shared_harness.llm_router import AllProvidersFailed, complete
+        except ImportError:
+            return []
+
+        missing_ids = [iid for iid in STANDARD_10K_ITEMS if iid not in already_found]
+        if not missing_ids:
+            return []
+
+        chunk_size = 8000
+        hits: list[SegmentResult] = []
+
+        for chunk_start in range(0, len(body), chunk_size):
+            chunk_end = min(chunk_start + chunk_size, len(body))
+            chunk = body[chunk_start:chunk_end]
+
+            still_missing = [iid for iid in missing_ids if iid not in {h.item_id for h in hits}]
+            if not still_missing:
+                break
+
+            prompt = (
+                "You are analyzing a SEC 10-K filing. Find the starting position of any "
+                "of these Item sections in the text below.\n\n"
+                f"Missing items to find: {', '.join('Item ' + iid for iid in still_missing)}\n\n"
+                f"TEXT (character offset {chunk_start} to {chunk_end}):\n"
+                f"{chunk}\n\n"
+                "Return a JSON array of objects with fields: "
+                '{"item_id": "1A", "offset_in_chunk": 123}\n'
+                "Only include items you are confident about. "
+                "offset_in_chunk is the character position within the TEXT above. "
+                "Return [] if no items are found. JSON only, no markdown."
+            )
+
+            try:
+                raw = complete(
+                    tier=1,
+                    call_site="sec_llm_segment",
+                    messages=[{"role": "user", "content": prompt}],
+                    run_id=run_id,
+                    task_type="filing",
+                    max_tokens=1024,
+                )
+                if not isinstance(raw, str):
+                    continue
+
+                raw_clean = raw.strip()
+                if raw_clean.startswith("```"):
+                    raw_clean = re.sub(r"^```\w*\n?", "", raw_clean)
+                    raw_clean = re.sub(r"\n?```$", "", raw_clean)
+
+                items_found = _json.loads(raw_clean)
+                if not isinstance(items_found, list):
+                    continue
+
+                for item in items_found:
+                    iid = _normalize_item_id(str(item.get("item_id", "")))
+                    offset = int(item.get("offset_in_chunk", -1))
+                    if iid not in still_missing or offset < 0 or offset >= len(chunk):
+                        continue
+                    abs_start = chunk_start + offset
+                    hits.append(
+                        SegmentResult(
+                            item_id=iid,
+                            start=abs_start,
+                            end=abs_start,
+                            method=SegmentMethod.LLM,
+                        )
+                    )
+            except (AllProvidersFailed, Exception) as exc:
+                logger.warning("LLM segment fallback failed for chunk %d: %s", chunk_start, exc)
+                continue
+
+        return hits

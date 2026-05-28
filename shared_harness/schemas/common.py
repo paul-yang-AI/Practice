@@ -30,19 +30,31 @@ class AgentAction(BaseModel):
         default="none",
         description="Action type: click | type | scroll | press_key | navigate | none",
     )
-    selector: str = Field(
+    selector: str | None = Field(
         default="",
         description="CSS selector, role/name, or text content to target.",
     )
-    value: str = Field(
+    value: str | None = Field(
         default="",
         description="Text to type, key to press, or URL to navigate to.",
     )
-    reasoning: str = Field(
+    reasoning: str | None = Field(
         default="",
         description="One-sentence explanation of why this action advances the task.",
     )
-    result: str = Field(
+    result: str | None = Field(
         default="",
         description="When done=true, the task-specific result extracted from the page (e.g., found text, data, answer).",
     )
+
+    @model_validator(mode="after")
+    def coerce_nulls(self) -> "AgentAction":
+        if self.selector is None:
+            self.selector = ""
+        if self.value is None:
+            self.value = ""
+        if self.reasoning is None:
+            self.reasoning = ""
+        if self.result is None:
+            self.result = ""
+        return self

@@ -15,7 +15,10 @@ def extract_from_html(
     ticker: str | None = None,
     run_id: str | None = None,
     use_arbiter: bool = False,
+    use_llm_fallback: bool = True,
 ) -> FilingExtraction:
-    body, segments = Segmenter().segment(html)
+    body, segments = Segmenter().segment(
+        html, run_id=run_id, use_llm_fallback=use_llm_fallback
+    )
     items = validate_segments(body, segments, run_id=run_id, use_arbiter=use_arbiter)
     return FilingExtraction(accession=accession, cik=cik, ticker=ticker, items=items)

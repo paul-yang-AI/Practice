@@ -7,6 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from shared_harness.edgar_client import search_filings
 from shared_harness.schemas.sec_schema import ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
@@ -169,25 +170,61 @@ st.markdown(
 )
 st.caption(
     "混合管線：Tier0（BS4 + 正則分段）→ 跨度完整性驗證 → "
-    "可選 Tier2 LLM 仲裁（僅處理爭議邊界）"
+    "LLM 仲裁（低信心段落自動調整邊界）"
 )
 
 tab_manifest, tab_custom = st.tabs(["📋 已註冊報表", "🔗 自訂報表"])
+
+_run_source: str | None = None
 
 with tab_manifest:
     filings = _load_manifest()
     labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
     choice = st.selectbox("選擇報表", labels, index=0)
     selected = filings[labels.index(choice)]
+    if st.button("🚀 開始抽取", type="primary", use_container_width=True, key="run_manifest"):
+        _run_source = "manifest"
 
 with tab_custom:
-    st.markdown(
-        "輸入 SEC EDGAR 的 accession number，即時抽取任何 10-K 報表。\n\n"
-        "💡 **提示**：可在 [EDGAR Full-Text Search](https://efts.sec.gov/LATEST/search-index?q=%2210-K%22&dateRange=custom&startdt=2024-01-01&enddt=2025-12-31&forms=10-K) "
-        "搜尋公司名稱找到 accession number。"
-    )
+    st.markdown("搜尋公司名稱或股票代碼，快速找到 10-K 報表。")
+
+    col_search, col_btn = st.columns([3, 1])
+    with col_search:
+        search_query = st.text_input(
+            "🔍 搜尋公司",
+            placeholder="例：Microsoft、AAPL、Tesla",
+            label_visibility="collapsed",
+        )
+    with col_btn:
+        do_search = st.button("搜尋", use_container_width=True)
+
+    if do_search and search_query.strip():
+        with st.spinner("搜尋 EDGAR…"):
+            hits = search_filings(search_query.strip())
+        if hits:
+            st.session_state["edgar_search_results"] = hits
+        else:
+            st.warning("未找到結果，請嘗試其他關鍵字。")
+
+    search_results = st.session_state.get("edgar_search_results", [])
+    if search_results:
+        search_labels = [
+            f"{r['company']} ({r['ticker']}) — {r['accession']} [{r['filed']}]"
+            for r in search_results
+        ]
+        search_choice = st.selectbox("選擇報表", search_labels, key="search_select")
+        chosen = search_results[search_labels.index(search_choice)]
+        if st.button("📄 使用此報表", use_container_width=True, key="use_search_result"):
+            st.session_state["custom_acc_fill"] = chosen["accession"]
+            st.session_state["custom_cik_fill"] = chosen["cik"]
+            st.session_state["custom_ticker_fill"] = chosen.get("ticker", "")
+
+    st.divider()
+    st.markdown("或直接輸入 Accession Number：")
+
     custom_accession = st.text_input(
         "Accession Number",
+        value=st.session_state.get("custom_acc_fill", ""),
         placeholder="例：0000950170-24-087843",
         help="格式：XXXXXXXXXX-YY-ZZZZZZ（含連字號）",
     )
@@ -195,46 +232,49 @@ with tab_custom:
     with col_cik:
         custom_cik = st.text_input(
             "CIK（選填，建議填寫）",
+            value=st.session_state.get("custom_cik_fill", ""),
             placeholder="例：789019（微軟）",
-            help="公司的 CIK 編號。若不填，系統會自動從 EDGAR 查詢，但可能較慢。",
+            help="公司的 CIK 編號。若不填，系統會自動從 EDGAR 查詢。",
         )
     with col_ticker:
-        custom_ticker = st.text_input("股票代碼（選填）", placeholder="MSFT")
+        custom_ticker = st.text_input(
+            "股票代碼（選填）",
+            value=st.session_state.get("custom_ticker_fill", ""),
+            placeholder="MSFT",
+        )
     custom_url = st.text_input(
         "報表 URL（選填，留空自動解析）",
         placeholder="https://www.sec.gov/Archives/edgar/data/.../filing.htm",
     )
+    if st.button("🚀 開始抽取", type="primary", use_container_width=True, key="run_custom"):
+        if not custom_accession.strip():
+            st.error("請輸入 Accession Number。")
+        else:
+            _run_source = "custom"
 
-use_arbiter = st.checkbox(
-    "🧠 啟用 LLM 仲裁（處理爭議邊界）",
-    value=False,
-    help="使用 Tier2 模型處理低信心段落，會產生額外成本。",
-)
-force_live = False
+use_arbiter = True
 
-run = st.button("🚀 開始抽取", type="primary", use_container_width=True)
+if _run_source == "manifest":
+    accession = selected["accession"]
+    filing_url = selected.get("url")
+    ticker = selected.get("ticker")
+    cik = selected.get("cik")
+elif _run_source == "custom":
+    accession = custom_accession.strip()
+    filing_url = custom_url.strip() or None
+    ticker = custom_ticker.strip() or None
+    cik = custom_cik.strip() or None
 
-if run:
-    if custom_accession.strip():
-        accession = custom_accession.strip()
-        filing_url = custom_url.strip() or None
-        ticker = custom_ticker.strip() or None
-        cik = custom_cik.strip() or None
-    else:
-        accession = selected["accession"]
-        filing_url = selected.get("url")
-        ticker = selected.get("ticker")
-        cik = selected.get("cik")
-
+if _run_source:
     with st.spinner(f"正在抽取 {accession}…"):
         try:
             html = fetch_filing_html(
                 accession,
                 url=filing_url,
                 cik=cik,
-                force_refresh=force_live,
+                force_refresh=False,
             )
-            st.session_state["sec_result"] = None  # Clear old
+            st.session_state["sec_result"] = None
             result = extract_from_html(
                 html,
                 accession=accession,

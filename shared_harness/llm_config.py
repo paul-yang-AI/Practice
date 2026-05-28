@@ -23,7 +23,7 @@ def _env(key: str, default: str) -> str:
 TIER1 = TierConfig(
     primary=_env("LLM_TIER1_PRIMARY", "gemini/gemini-3-flash-preview"),
     fallback=_env("LLM_TIER1_FALLBACK", "openrouter/deepseek/deepseek-v4-pro"),
-    reasoning_effort="minimal",
+    reasoning_effort=None,
 )
 
 TIER2 = TierConfig(

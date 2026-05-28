@@ -51,7 +51,7 @@ def _provider_from_model(model: str) -> str:
 
 def _completion_kwargs(cfg: llm_config.TierConfig, tier: int) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
-    if tier == 1 and cfg.reasoning_effort:
+    if cfg.reasoning_effort:
         kwargs["reasoning_effort"] = cfg.reasoning_effort
     return kwargs
 
@@ -78,7 +78,12 @@ def _invoke(
         max_tokens=max_tokens,
         **extra,
     )
-    content = response.choices[0].message.content or ""
+    content = response.choices[0].message.content
+    if content is None or content.strip() == "":
+        raise ValueError(
+            f"Model {model} returned empty content (thinking tokens may have "
+            f"consumed entire max_tokens={max_tokens})"
+        )
     usage = getattr(response, "usage", None)
     tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0)
     tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)

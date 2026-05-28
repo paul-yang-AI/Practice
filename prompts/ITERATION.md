@@ -2,6 +2,32 @@
 
 Record v1→v2 changes with Failed Path / Resolution / Validation.
 
+## deployment_fix: Agent LLM 打通 + SEC UI 重構 + LLM fallback 層 + 評估即時化
+
+- **Failed Path**: 部署後發現五個問題：
+  1. 瀏覽器代理每步都 `plan_failed` — Gemini thinking 模型 `reasoning_effort="minimal"`
+     導致 thinking tokens 消耗全部預算，`content=None` → `ValidationError` → 重試耗盡
+  2. SEC 自訂報表用完後切回已註冊報表，仍讀到自訂報表值 — Streamlit widget state
+     在 tab 切換時不清空，`if custom_accession.strip()` 永遠為 True
+  3. LLM 仲裁需手動勾選 checkbox（預設 False），使用者不知道要開啟
+  4. 評估儀表板一進頁面就讀 repo 裡的靜態 cache 結果，非即時
+  5. 使用者需手動去外部網站找 accession number
+- **Resolution**:
+  1. `llm_config.py`: `reasoning_effort` 改 `None`；`llm_router.py`: 偵測 `content is None`
+     主動拋 `ValueError` 觸發重試（而非靜默返回空字串讓下游 parse 失敗）
+  2. 每個 tab 各自放獨立的「開始抽取」按鈕 + `_run_source` flag 判斷來源
+  3. 移除 checkbox，`use_arbiter = True` 直接硬編碼
+  4. 評估儀表板改為 on-demand：頁面初始只顯示「執行評估」按鈕，即時呼叫
+     `run_sec_eval()` / `run_agent_eval()` 產生結果
+  5. 整合 EDGAR EFTS 搜尋 API：`search_filings()` in `edgar_client.py`，
+     搜尋結果自動帶入 accession/CIK/ticker
+  6. 新增 SEC LLM fallback 層：`SegmentMethod.LLM`，coverage < 30% 或 missing > 5 時觸發，
+     LLM 只回傳 `(item_id, offset)` 偏移量，文字仍 `body[start:end]` 原文切割
+  7. 新增 `scripts/e2e_smoke.py`：push 前驗證 LLM、SEC pipeline、Agent planning
+- **Validation**: 65 tests pass; LLM empty-content 檢測在 `_invoke` 層攔截；
+  tab 切換 bug 透過獨立按鈕 + source flag 根治；LLM fallback 層不影響 Tier0 測試
+  （`use_llm_fallback=False` 在 tier0-only 測試中明確禁用）。
+
 ## infra_fix: MSFT cache + litellm upgrade + normalize robustness
 
 - **Failed Path**: Three critical infrastructure issues:

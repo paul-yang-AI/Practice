@@ -261,6 +261,73 @@ def fetch_filing_html(
     return html
 
 
+def search_filings(
+    company: str,
+    form_type: str = "10-K",
+    max_results: int = 10,
+) -> list[dict]:
+    """Search EDGAR EFTS for filings by company name or ticker.
+
+    Returns list of dicts with keys: company, ticker, cik, accession, filed, form.
+    """
+    import json as _json
+    from urllib.parse import quote
+
+    query = quote(company)
+    url = (
+        f"https://efts.sec.gov/LATEST/search-index?"
+        f"q={query}&forms={form_type}"
+        f"&dateRange=custom&startdt=2020-01-01&enddt=2026-12-31"
+    )
+    logger.info("EDGAR EFTS search: %s", url)
+
+    try:
+        resp = _http_get(url)
+    except Exception:
+        url_fallback = (
+            f"https://efts.sec.gov/LATEST/search-index?"
+            f"q=%22{query}%22&forms={form_type}"
+        )
+        try:
+            resp = _http_get(url_fallback)
+        except Exception as exc:
+            logger.warning("EDGAR EFTS search failed: %s", exc)
+            return []
+
+    try:
+        data = _json.loads(resp.text)
+    except Exception:
+        return []
+
+    hits = data.get("hits", {}).get("hits", [])
+    results: list[dict] = []
+    for hit in hits[:max_results]:
+        src = hit.get("_source", {})
+        accession_raw = src.get("file_num", "") or hit.get("_id", "")
+        entity = src.get("entity_name", "")
+        filed = src.get("file_date", "")
+        form = src.get("form_type", form_type)
+
+        file_parts = hit.get("_id", "").split(":")
+        accession = file_parts[0] if file_parts else ""
+        if not accession:
+            continue
+
+        tickers = src.get("tickers", "")
+        cik = str(src.get("entity_id", ""))
+
+        results.append({
+            "company": entity,
+            "ticker": tickers,
+            "cik": cik,
+            "accession": accession,
+            "filed": filed,
+            "form": form,
+        })
+
+    return results
+
+
 def reset_throttle_for_tests() -> None:
     global _last_request_at, _user_agent_validated
     with _lock:
