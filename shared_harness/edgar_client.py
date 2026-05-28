@@ -285,8 +285,10 @@ def search_filings(
 
     for hit in _search_filings_efts(query, form_type, max_results):
         if hit["accession"] not in seen:
-            results.append(hit)
-            seen.add(hit["accession"])
+            normalized = normalize_search_hit(hit)
+            if normalized:
+                results.append(normalized)
+                seen.add(normalized["accession"])
 
     return results[:max_results]
 
@@ -326,8 +328,16 @@ def resolve_cik_from_ticker(query: str) -> str | None:
     return None
 
 
-def _latest_filing_from_submissions(cik: str, form_type: str = "10-K") -> dict | None:
-    """Return the most recent filing of form_type for a CIK via submissions API."""
+def cik_from_accession(accession: str) -> str | None:
+    """Derive CIK from standard SEC accession number prefix."""
+    head = accession.split("-")[0] if accession else ""
+    if head.isdigit():
+        return head.lstrip("0") or "0"
+    return None
+
+
+def _fetch_submissions(cik: str) -> dict | None:
+    """Fetch company submissions JSON for a CIK."""
     import json as _json
 
     cik_clean = cik.lstrip("0") or "0"
@@ -335,11 +345,79 @@ def _latest_filing_from_submissions(cik: str, form_type: str = "10-K") -> dict |
     url = f"https://data.sec.gov/submissions/CIK{padded}.json"
     try:
         resp = _http_get(url)
-        data = _json.loads(resp.text)
+        return _json.loads(resp.text)
     except Exception as exc:
-        logger.warning("Submissions lookup failed for CIK %s: %s", cik, exc)
+        logger.warning("Submissions fetch failed for CIK %s: %s", cik, exc)
         return None
 
+
+def lookup_company_meta(cik: str) -> dict | None:
+    """Return company name and primary ticker for a CIK."""
+    data = _fetch_submissions(cik)
+    if not data:
+        return None
+    tickers = data.get("tickers", [])
+    return {
+        "company": data.get("name", ""),
+        "ticker": tickers[0] if tickers else "",
+        "cik": cik.lstrip("0") or "0",
+    }
+
+
+def normalize_search_hit(hit: dict) -> dict | None:
+    """Enrich EFTS hits with CIK/company; drop hits that remain unidentifiable."""
+    row = dict(hit)
+    cik = str(row.get("cik") or "").strip()
+    if not cik:
+        cik = cik_from_accession(str(row.get("accession") or "")) or ""
+    if cik:
+        row["cik"] = cik
+
+    if not str(row.get("company") or "").strip() or not str(row.get("ticker") or "").strip():
+        if cik:
+            meta = lookup_company_meta(cik)
+            if meta:
+                if not str(row.get("company") or "").strip():
+                    row["company"] = meta.get("company", "")
+                if not str(row.get("ticker") or "").strip():
+                    row["ticker"] = meta.get("ticker", "")
+
+    if not str(row.get("company") or "").strip():
+        return None
+    return row
+
+
+def format_filing_search_label(hit: dict) -> str:
+    """Human-readable label for search result selectbox."""
+    company = hit.get("company") or "未知公司"
+    ticker = hit.get("ticker") or "—"
+    accession = hit.get("accession", "")
+    filed = hit.get("filed", "")
+    source = hit.get("source", "")
+    badge = " [ticker 精準]" if source == "submissions" else ""
+    return f"{company} ({ticker}) — {accession} [{filed}]{badge}"
+
+
+def search_quality_hint(query: str) -> str | None:
+    """UX hint when query is likely a full-text keyword rather than ticker/name."""
+    q = query.strip()
+    if not q or resolve_cik_from_ticker(q):
+        return None
+    if len(q.split()) == 1 and q.isalpha() and q.islower():
+        return (
+            f"「{q}」可能匹配報表內文而非公司名。建議改用美股代碼"
+            "（例：Alphabet → GOOGL、Microsoft → MSFT）或公司法定英文名。"
+        )
+    return None
+
+
+def _latest_filing_from_submissions(cik: str, form_type: str = "10-K") -> dict | None:
+    """Return the most recent filing of form_type for a CIK via submissions API."""
+    data = _fetch_submissions(cik)
+    if not data:
+        return None
+
+    cik_clean = cik.lstrip("0") or "0"
     name = data.get("name", "")
     tickers = data.get("tickers", [])
     ticker = tickers[0] if tickers else ""

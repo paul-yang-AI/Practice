@@ -268,3 +268,8 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
 - **Failed path**: `duckduckgo_search` consistently hit `max_steps` in train eval (83% KPI) despite Wiki search passing — redundant + flaky (consent/SERP), fixing would overfit.
 - **Resolution**: Move task to `split: heldout`; keep UI preset labeled experimental; train search KPI = Wikipedia only.
 - **Validation**: train eval **5/5** agent tasks.
+
+### `sec_search_ux` (2026-05-28)
+- **Failed path**: Query `google` returned EFTS hits with empty `() — accession` labels (no entity_name); users could pick wrong filing.
+- **Resolution**: `normalize_search_hit` enriches CIK from accession + submissions API; drop unidentified hits; UI hints for ticker vs keyword; confirm line before use.
+- **Validation**: `tests/unit/test_edgar_client.py`.

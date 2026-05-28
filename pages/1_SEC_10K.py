@@ -7,7 +7,12 @@ from pathlib import Path
 
 import streamlit as st
 
-from shared_harness.edgar_client import find_proxy_filing, search_filings
+from shared_harness.edgar_client import (
+    find_proxy_filing,
+    format_filing_search_label,
+    search_filings,
+    search_quality_hint,
+)
 from shared_harness.schemas.sec_schema import ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
@@ -335,38 +340,55 @@ with tab_manifest:
         _run_source = "manifest"
 
 with tab_custom:
-    st.markdown("搜尋公司名稱或股票代碼，快速找到 10-K 報表。")
+    st.markdown(
+        "**建議使用美股代碼**（如 `MSFT`、`GOOGL`）或公司法定英文名；"
+        "避免單字如 `google`（會搜到報表內文，易誤判）。"
+        "已知 Accession 可直接貼上，最精準。"
+    )
 
     col_search, col_btn = st.columns([3, 1])
     with col_search:
         search_query = st.text_input(
             "🔍 搜尋公司",
-            placeholder="例：Microsoft、AAPL、Tesla",
+            placeholder="建議：MSFT / GOOGL / Alphabet / 0000950170-24-087843",
             label_visibility="collapsed",
         )
     with col_btn:
         do_search = st.button("搜尋", use_container_width=True)
 
     if do_search and search_query.strip():
+        q = search_query.strip()
+        hint = search_quality_hint(q)
+        if hint:
+            st.info(hint)
         with st.spinner("搜尋 EDGAR…"):
-            hits = search_filings(search_query.strip())
-        if hits:
-            st.session_state["edgar_search_results"] = hits
-        else:
-            st.warning("未找到結果，請嘗試其他關鍵字。")
+            hits = search_filings(q)
+        st.session_state["edgar_search_results"] = hits
+        st.session_state["edgar_search_query"] = q
+        if not hits:
+            st.warning(
+                "未找到可識別的 10-K 報表。請改用 **ticker**（如 GOOGL 而非 google）、"
+                "公司英文名，或直接輸入 Accession Number。"
+            )
 
     search_results = st.session_state.get("edgar_search_results", [])
     if search_results:
-        search_labels = [
-            f"{r['company']} ({r['ticker']}) — {r['accession']} [{r['filed']}]"
-            for r in search_results
-        ]
+        st.caption("請確認 **公司全名、ticker、accession、申報日期** 後再使用。")
+        search_labels = [format_filing_search_label(r) for r in search_results]
         search_choice = st.selectbox("選擇報表", search_labels, key="search_select")
         chosen = search_results[search_labels.index(search_choice)]
+        st.markdown(
+            f"**已選：** {chosen.get('company', '—')} · "
+            f"**{chosen.get('ticker') or '—'}** · `{chosen['accession']}` · {chosen.get('filed', '')}"
+        )
         if st.button("📄 使用此報表", use_container_width=True, key="use_search_result"):
             st.session_state["custom_acc_fill"] = chosen["accession"]
             st.session_state["custom_cik_fill"] = chosen["cik"]
             st.session_state["custom_ticker_fill"] = chosen.get("ticker", "")
+            st.success(
+                f"已填入 {chosen.get('company')} ({chosen.get('ticker') or '—'}) 的 accession。"
+                "請在下方確認後按「開始抽取」。"
+            )
 
     st.divider()
     st.markdown("或直接輸入 Accession Number：")
