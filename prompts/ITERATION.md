@@ -273,3 +273,8 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
 - **Failed path**: Query `google` returned EFTS hits with empty `() — accession` labels (no entity_name); users could pick wrong filing.
 - **Resolution**: `normalize_search_hit` enriches CIK from accession + submissions API; drop unidentified hits; UI hints for ticker vs keyword; confirm line before use.
 - **Validation**: `tests/unit/test_edgar_client.py`.
+
+### `eval_dashboard_ux` (2026-05-28)
+- **Failed path**: Eval page mixed SEC/Agent wide CSV; only preset train tasks; no distinction from live user runs.
+- **Resolution**: Three tabs — Benchmark train cards, Known limitations, Live agent runs from SQLite; load persisted `eval_summary.json` on open; CSV in download expander.
+- **Validation**: `tests/unit/test_sqlite_wal_concurrency.py::test_list_recent_runs_includes_cost_and_steps`.

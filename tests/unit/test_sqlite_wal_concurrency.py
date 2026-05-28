@@ -58,3 +58,27 @@ def test_sqlite_wal_concurrent_writes() -> None:
         conn.close()
     assert cost_rows == n_threads * (inserts_per_thread // 2)
     assert step_rows == n_threads * (inserts_per_thread // 2)
+
+
+@pytest.mark.unit
+def test_list_recent_runs_includes_cost_and_steps() -> None:
+    from shared_harness.job_store import list_recent_runs, mark_run
+
+    run_id = create_run("agent")
+    insert_step(run_id, 0, action="navigate:https://example.com", status="success")
+    record_cost(
+        run_id=run_id,
+        tier=1,
+        provider="test",
+        model="m",
+        call_site="test",
+        attempt="primary",
+        usd=0.01,
+    )
+    mark_run(run_id, "success")
+
+    rows = list_recent_runs(limit=5, task_type="agent")
+    match = [r for r in rows if r["id"] == run_id]
+    assert match
+    assert match[0]["step_count"] >= 1
+    assert float(match[0]["usd_total"]) >= 0.01

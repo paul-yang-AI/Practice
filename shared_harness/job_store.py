@@ -136,6 +136,60 @@ def insert_step(
         conn.close()
 
 
+def list_recent_runs(*, limit: int = 30, task_type: str | None = None) -> list[dict]:
+    """Recent UI runs for observability (not benchmark KPI)."""
+    conn = get_connection()
+    try:
+        if task_type:
+            rows = conn.execute(
+                """
+                SELECT r.id, r.task_type, r.status, r.created_at, r.updated_at,
+                       COUNT(DISTINCT s.id) AS step_count,
+                       COALESCE((SELECT SUM(usd) FROM cost_events c WHERE c.run_id = r.id), 0) AS usd_total,
+                       COALESCE((SELECT COUNT(*) FROM cost_events c WHERE c.run_id = r.id), 0) AS llm_calls
+                FROM runs r
+                LEFT JOIN run_steps s ON s.run_id = r.id
+                WHERE r.task_type = ?
+                GROUP BY r.id
+                ORDER BY r.created_at DESC
+                LIMIT ?
+                """,
+                (task_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT r.id, r.task_type, r.status, r.created_at, r.updated_at,
+                       COUNT(DISTINCT s.id) AS step_count,
+                       COALESCE((SELECT SUM(usd) FROM cost_events c WHERE c.run_id = r.id), 0) AS usd_total,
+                       COALESCE((SELECT COUNT(*) FROM cost_events c WHERE c.run_id = r.id), 0) AS llm_calls
+                FROM runs r
+                LEFT JOIN run_steps s ON s.run_id = r.id
+                GROUP BY r.id
+                ORDER BY r.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_run_steps(run_id: str) -> list[dict]:
+    """Step timeline for a single run."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT step_index, action, status, failure_type, log_json, created_at "
+            "FROM run_steps WHERE run_id = ? ORDER BY step_index, id",
+            (run_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 @contextmanager
 def get_connection_ctx(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     conn = get_connection(db_path)
