@@ -12,8 +12,11 @@ st.set_page_config(page_title="Whaleforce", page_icon="🐋", layout="wide")
 
 # Global sidebar
 with st.sidebar:
-    st.markdown("### 🐋 Whaleforce")
-    st.caption("AI Coding Test")
+    st.markdown(
+        '<p style="font-size:1.6rem; font-weight:800; margin:0;">🐋 Whaleforce</p>'
+        '<p style="font-size:0.9rem; color:#666; margin:0;">AI Coding Test</p>',
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     st.markdown("**Environment Status**")

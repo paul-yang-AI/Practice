@@ -72,7 +72,9 @@ def _render_item(item) -> None:
     title = f"Item {item.item_id}" + (f" — {name}" if name else "")
 
     if item.status == ItemStatus.EXTRACTED and item.text:
-        with st.expander(f"{icon} {title}", expanded=False):
+        is_page_ref = _is_page_reference_only(item.text)
+        suffix = " (cross-reference)" if is_page_ref else ""
+        with st.expander(f"{icon} {title}{suffix}", expanded=False):
             # Confidence bar
             col_conf, col_len = st.columns([2, 1])
             with col_conf:
@@ -80,6 +82,12 @@ def _render_item(item) -> None:
             with col_len:
                 word_count = len(item.text.split())
                 st.caption(f"📝 {word_count:,} words · {len(item.text):,} chars")
+
+            if is_page_ref:
+                st.info(
+                    "📄 This item contains a cross-reference to page numbers in the printed "
+                    "annual report. The full content resides in the PDF exhibit, not inline HTML."
+                )
 
             # Render text as markdown with basic structure
             formatted = _format_sec_text(item.text)
@@ -118,6 +126,21 @@ def _render_item(item) -> None:
         )
 
 
+def _is_page_reference_only(text: str) -> bool:
+    """Detect if extracted text is just a TOC page reference (e.g. 'Pages 3-4, 13')."""
+    import re
+    clean = text.strip()
+    if len(clean) < 200:
+        # Short text that's mostly page numbers
+        page_refs = re.findall(r"(?:Pages?|pp?\.?)\s*[\d\-–,\s]+", clean, re.IGNORECASE)
+        non_ref = re.sub(r"(?:Pages?|pp?\.?)\s*[\d\-–,\s]+", "", clean, flags=re.IGNORECASE)
+        non_ref = re.sub(r"Item\s+\d+[A-Z]?\.?", "", non_ref).strip()
+        non_ref = re.sub(r"[:\n\r\s]+", "", non_ref)
+        if page_refs and len(non_ref) < 80:
+            return True
+    return False
+
+
 def _format_sec_text(text: str) -> str:
     """Convert raw SEC text into basic HTML with paragraph breaks and headers."""
     import html as html_mod
@@ -130,7 +153,6 @@ def _format_sec_text(text: str) -> str:
             parts.append("<br>")
             continue
         escaped = html_mod.escape(stripped)
-        # Detect section-like headers (ALL CAPS lines or lines ending with colon)
         if stripped.isupper() and len(stripped) > 3 and len(stripped) < 120:
             parts.append(f"<strong style='color:#1e40af;'>{escaped}</strong><br>")
         elif stripped.endswith(":") and len(stripped) < 80:
@@ -172,19 +194,12 @@ with tab_custom:
     )
     custom_ticker = st.text_input("Ticker (optional)", placeholder="MSFT")
 
-col_opt1, col_opt2 = st.columns(2)
-with col_opt1:
-    force_live = st.checkbox(
-        "🌐 Force live EDGAR fetch",
-        value=False,
-        help="Bypass cache, fetch directly from SEC. Requires SEC_USER_AGENT.",
-    )
-with col_opt2:
-    use_arbiter = st.checkbox(
-        "🧠 Enable LLM arbiter (disputed boundaries)",
-        value=False,
-        help="Uses Tier2 model for low-confidence segments. Adds cost.",
-    )
+use_arbiter = st.checkbox(
+    "🧠 Enable LLM arbiter (disputed boundaries)",
+    value=False,
+    help="Uses Tier2 model for low-confidence segments. Adds cost.",
+)
+force_live = False  # Always use cache for demo stability
 
 run = st.button("🚀 Extract", type="primary", use_container_width=True)
 

@@ -24,6 +24,11 @@ def _success_executor(action: str, context: dict) -> StepResult:
     )
 
 
+def _mock_plan_done(*args, **kwargs):
+    """Mock LLM plan that immediately marks task done."""
+    return {"done": True, "action": "none", "selector": "", "value": "", "reasoning": "Page loaded", "result": "Example Domain"}
+
+
 @pytest.mark.integration
 def test_blind_critic_rejects_means_run_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     """When Blind Critic says NO, run status must be 'failed' even if L0 all passed."""
@@ -32,7 +37,8 @@ def test_blind_critic_rejects_means_run_fails(monkeypatch: pytest.MonkeyPatch) -
 
     mock_verdict = CriticVerdict(passed=False)
 
-    with patch("task1_agent.agent.loop.verify_via_blind_critic", return_value=mock_verdict):
+    with patch("task1_agent.agent.loop.verify_via_blind_critic", return_value=mock_verdict), \
+         patch("task1_agent.agent.loop._plan_next_action", side_effect=_mock_plan_done):
         result = run(
             task_description="Navigate to example.com and verify the title.",
             start_url="https://example.com",
@@ -52,7 +58,8 @@ def test_blind_critic_accepts_means_run_succeeds(monkeypatch: pytest.MonkeyPatch
 
     mock_verdict = CriticVerdict(passed=True)
 
-    with patch("task1_agent.agent.loop.verify_via_blind_critic", return_value=mock_verdict):
+    with patch("task1_agent.agent.loop.verify_via_blind_critic", return_value=mock_verdict), \
+         patch("task1_agent.agent.loop._plan_next_action", side_effect=_mock_plan_done):
         result = run(
             task_description="Navigate to example.com and verify the title.",
             start_url="https://example.com",
@@ -69,7 +76,8 @@ def test_blind_critic_disabled_skips_gate(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("ENABLE_BLIND_CRITIC", "false")
     run_id = create_run("agent")
 
-    with patch("task1_agent.agent.loop.verify_via_blind_critic") as mock_critic:
+    with patch("task1_agent.agent.loop.verify_via_blind_critic") as mock_critic, \
+         patch("task1_agent.agent.loop._plan_next_action", side_effect=_mock_plan_done):
         result = run(
             task_description="Navigate to example.com.",
             start_url="https://example.com",

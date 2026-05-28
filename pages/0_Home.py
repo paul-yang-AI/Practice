@@ -82,17 +82,21 @@ if summary:
     m1, m2, m3, m4 = st.columns(4)
 
     sec_pass = summary.get("sec_ok", 0)
-    sec_total = summary.get("sec_total", 0)
-    agent_pass = summary.get("agent_success", 0)
-    agent_total = summary.get("agent_total", 0)
+    sec_total = summary.get("sec_filings", summary.get("sec_total", 1))
+    agent_total = summary.get("agent_tasks", summary.get("agent_total", 1))
+    agent_rate = summary.get("agent_success_rate", 0)
+    agent_pass = int(agent_rate * agent_total) if agent_rate <= 1 else int(agent_rate)
+    p50_lat = summary.get("agent_latency_p50", summary.get("agent_p50_latency_s"))
+    p50_cost = summary.get("agent_usd_p50", summary.get("agent_p50_cost_usd", 0))
 
-    m1.metric("SEC 10-K", f"{sec_pass}/{sec_total}", delta="pass" if sec_pass == sec_total else None)
-    m2.metric("Browser Agent", f"{agent_pass}/{agent_total}")
-    m3.metric("P50 Latency", f"{summary.get('agent_p50_latency_s', 'N/A')}s")
-    m4.metric("P50 Cost", f"${summary.get('agent_p50_cost_usd', 0):.4f}")
+    m1.metric("SEC 10-K", f"{sec_pass}/{sec_total}", delta="All pass" if sec_pass == sec_total else None)
+    m2.metric("Browser Agent", f"{agent_pass}/{agent_total}", delta=f"{agent_rate:.0%}")
+    m3.metric("P50 Latency", f"{p50_lat:.1f}s" if p50_lat else "N/A")
+    m4.metric("P50 Cost", f"${p50_cost:.4f}" if p50_cost else "N/A")
 
+    overall = (sec_pass + agent_pass) / max(sec_total + agent_total, 1)
     st.progress(
-        (sec_pass + agent_pass) / max(sec_total + agent_total, 1),
+        min(max(overall, 0.0), 1.0),
         text=f"Overall: {sec_pass + agent_pass}/{sec_total + agent_total} tasks pass",
     )
 else:

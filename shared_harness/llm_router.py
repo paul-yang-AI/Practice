@@ -31,6 +31,12 @@ class AllProvidersFailed(Exception):
 _fallback_disabled_runtime: bool = False
 
 
+def reset_fallback_state() -> None:
+    """Reset runtime fallback state (for tests)."""
+    global _fallback_disabled_runtime
+    _fallback_disabled_runtime = False
+
+
 def _fallback_available(model: str) -> bool:
     if _fallback_disabled_runtime:
         return False
@@ -111,6 +117,9 @@ def _attempt(
     return parse_model(raw, schema)
 
 
+_MAX_PRIMARY_RETRIES = 3
+
+
 def complete(
     *,
     tier: int,
@@ -123,28 +132,15 @@ def complete(
 ) -> str | BaseModel:
     cfg = llm_config.resolve_tier(tier)
     use_json_mode = schema is not None
+    json_nudge = [{"role": "user", "content": "Respond with valid JSON only. No markdown fences."}]
 
-    try:
-        return _attempt(
-            model=cfg.primary,
-            messages=messages,
-            tier=tier,
-            call_site=call_site,
-            attempt="primary",
-            run_id=run_id,
-            task_type=task_type,
-            max_tokens=max_tokens,
-            schema=schema,
-            force_json=use_json_mode,
-        )
-    except BudgetExceededError:
-        raise
-    except ValidationError:
-        json_nudge = [{"role": "user", "content": "Respond with valid JSON only. No markdown fences."}]
+    last_exc: Exception | None = None
+    for attempt_num in range(_MAX_PRIMARY_RETRIES):
+        msgs = messages if attempt_num == 0 else messages + json_nudge
         try:
             return _attempt(
                 model=cfg.primary,
-                messages=messages + json_nudge,
+                messages=msgs,
                 tier=tier,
                 call_site=call_site,
                 attempt="primary",
@@ -152,20 +148,20 @@ def complete(
                 task_type=task_type,
                 max_tokens=max_tokens,
                 schema=schema,
-                force_json=True,
+                force_json=use_json_mode or (attempt_num > 0),
             )
         except BudgetExceededError:
             raise
-        except ValidationError:
-            pass
-        except _INFRA_ERRORS:
-            pass
+        except ValidationError as exc:
+            last_exc = exc
+            logger.debug("Primary attempt %d/%d validation failed", attempt_num + 1, _MAX_PRIMARY_RETRIES)
+            continue
+        except _INFRA_ERRORS as exc:
+            last_exc = exc
+            break
         except Exception as exc:
-            raise AllProvidersFailed(str(exc)) from exc
-    except _INFRA_ERRORS:
-        pass
-    except Exception as exc:
-        raise AllProvidersFailed(str(exc)) from exc
+            last_exc = exc
+            break
 
     if not llm_config.fallback_enabled() or not _fallback_available(cfg.fallback):
         raise AllProvidersFailed("Primary failed and fallback disabled or unavailable")

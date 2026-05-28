@@ -20,6 +20,11 @@ def _isolate_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     js._schema_initialized = False
 
+    # Reset LLM router fallback state between tests
+    from shared_harness.llm_router import reset_fallback_state
+
+    reset_fallback_state()
+
 
 @pytest.fixture(autouse=True)
 def _sec_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
