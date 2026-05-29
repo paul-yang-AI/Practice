@@ -33,7 +33,7 @@
 ### GitHub
 - [x] Push latest commits: `git push origin master`
 - [ ] **Settings → Change visibility → Public** (required by test brief)
-- [ ] Verify no secrets in history
+- [x] Verify no secrets in history (`.env` never committed; history scan clean)
 
 ### Email to Whaleforce
 Include:

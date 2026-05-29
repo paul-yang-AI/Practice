@@ -1,10 +1,13 @@
 __pycache__/
 *.py[cod]
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 *.db
 *.sqlite
+data/
 task2_sec/eval/cache/*.html
 !task2_sec/eval/cache/0000950170-24-087843.html
 !task2_sec/eval/cache/0000050863-25-000009.html
