@@ -25,12 +25,13 @@
 ### Zeabur smoke (after push → auto redeploy)
 - [ ] **Browser Agent**: preset "Navigate to Example.com" → Run → Refresh → `success` + **Result** block
 - [ ] **Browser Agent**: preset "Hacker News" → verify multi-step + extracted title
-- [ ] **SEC 10K**: MSFT from manifest → Extract → Item tree with statuses
+- [ ] **SEC 10K**: MSFT from manifest → Extract → Item tree + **原始 HTML 片段** tab
 - [ ] **SEC 10K**: Citi → Items 10–14 show `incorporated_by_reference`
-- [ ] **Eval**: filter SEC / Agent tabs; summary JSON visible
+- [ ] **SEC 10K**: JSON/Markdown 下載（metrics 下方，應即時無長等待）
+- [ ] **Eval**: 即時紀錄 tab 可見 Agent + SEC runs；基準 tab 正常
 
 ### GitHub
-- [ ] Push latest commits: `git push origin master`
+- [x] Push latest commits: `git push origin master`
 - [ ] **Settings → Change visibility → Public** (required by test brief)
 - [ ] Verify no secrets in history
 

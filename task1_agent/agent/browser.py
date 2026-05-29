@@ -15,25 +15,42 @@ from playwright.sync_api import (
 )
 
 from task1_agent.agent.dom_serialize import compress_a11y
+from task1_agent.agent.intent import extract_search_query, normalize_type_action, task_implies_search
 from task1_agent.agent.loop import StepResult
 from task1_agent.agent.recovery import FailureType, classify_failure
 from task1_agent.agent.verify import VerifyResult, verify_navigation, verify_step
 
 logger = logging.getLogger(__name__)
 
-_SUBMIT_TASK_VERBS = ("search", "find", "query")
+_SUBMIT_TASK_VERBS = ("search", "find", "query", "搜", "查")
 
 
 def _task_implies_submit(task: str) -> bool:
     """Generic: typing in search/find tasks should submit (Enter), not site-specific."""
+    if task_implies_search(task):
+        return True
     t = task.lower()
     return any(w in t for w in _SUBMIT_TASK_VERBS)
 
 
 _CONSENT_BUTTON_RE = re.compile(
-    r"accept|agree|got it|continue|allow all|i understand|consent",
+    r"accept|agree|got it|continue|allow all|i understand|consent|"
+    r"接受|同意|繼續|继续|全部接受|全部同意|拒絕全部|拒绝全部|關閉|关闭",
     re.I,
 )
+
+_CSS_SELECTOR_HINT = re.compile(r"^[#\.\[]|input\[|textarea\[|^\w+\[", re.I)
+
+
+def _looks_like_css(selector: str) -> bool:
+    return bool(selector and _CSS_SELECTOR_HINT.search(selector.strip()))
+
+
+def _format_action_desc(action_type: str, selector: str, value: str) -> str:
+    base = f"{action_type}:{selector or value or '?'}"
+    if selector and value:
+        return f"{base}={value}"
+    return base
 
 
 def _try_dismiss_consent_banner(page: Page) -> None:
@@ -181,13 +198,21 @@ class PlaywrightExecutor:
         action_type = planned_action.get("action", "none")
         selector = planned_action.get("selector", "")
         value = planned_action.get("value", "")
+        used_intent_fallback = False
 
-        action_desc = f"{action_type}:{selector or value}"
+        if action_type == "type":
+            selector, value, used_intent_fallback = normalize_type_action(task, selector, value)
+
+        action_desc = _format_action_desc(action_type, selector, value)
+        if used_intent_fallback:
+            action_desc = f"{action_desc}+intent"
+
+        prev_url = page.url
 
         if action_type == "click":
             self._do_click(page, selector)
         elif action_type == "type":
-            self._do_type(page, selector, value)
+            self._do_type(page, selector, value, prefer_searchbox=task_implies_search(task))
             if value and _task_implies_submit(task):
                 page.wait_for_timeout(300)
                 page.keyboard.press("Enter")
@@ -219,7 +244,13 @@ class PlaywrightExecutor:
         except PwTimeout:
             pass
 
-        return self._observe(step_index, action_desc, task, start_url)
+        return self._observe(
+            step_index,
+            action_desc,
+            task,
+            start_url,
+            prev_url=prev_url if action_type == "type" else None,
+        )
 
     def _do_click(self, page: Page, selector: str) -> None:
         """Click an element using multiple strategies."""
@@ -263,13 +294,30 @@ class PlaywrightExecutor:
 
         raise RuntimeError(f"Element not found for click: {selector!r}")
 
-    def _do_type(self, page: Page, selector: str, value: str) -> None:
+    def _do_type(
+        self,
+        page: Page,
+        selector: str,
+        value: str,
+        *,
+        prefer_searchbox: bool = False,
+    ) -> None:
         """Type text into an element using multiple strategies."""
         if not selector and not value:
             return
 
-        # Strategy 1: placeholder
-        if selector:
+        if prefer_searchbox or value:
+            for role in ["searchbox", "textbox", "combobox"]:
+                try:
+                    locator = page.get_by_role(role)
+                    if locator.count() > 0:
+                        locator.first.click(timeout=3000)
+                        locator.first.fill(value)
+                        return
+                except Exception:
+                    pass
+
+        if selector and not _looks_like_css(selector):
             try:
                 locator = page.get_by_placeholder(selector)
                 if locator.count() > 0:
@@ -279,8 +327,6 @@ class PlaywrightExecutor:
             except Exception:
                 pass
 
-        # Strategy 2: label
-        if selector:
             try:
                 locator = page.get_by_label(selector)
                 if locator.count() > 0:
@@ -290,7 +336,13 @@ class PlaywrightExecutor:
             except Exception:
                 pass
 
-        # Strategy 3: role textbox/searchbox
+        if selector and _looks_like_css(selector):
+            try:
+                page.fill(selector, value, timeout=3000)
+                return
+            except Exception:
+                pass
+
         for role in ["searchbox", "textbox", "combobox"]:
             try:
                 locator = page.get_by_role(role)
@@ -301,7 +353,6 @@ class PlaywrightExecutor:
             except Exception:
                 pass
 
-        # Strategy 4: CSS selector
         if selector:
             try:
                 page.fill(selector, value, timeout=3000)
@@ -309,12 +360,12 @@ class PlaywrightExecutor:
             except Exception:
                 pass
 
-        # Strategy 5: active input element
-        try:
-            page.keyboard.type(value)
-            return
-        except Exception:
-            pass
+        if value:
+            try:
+                page.keyboard.type(value)
+                return
+            except Exception:
+                pass
 
         raise RuntimeError(f"Could not type into: {selector!r}")
 
@@ -344,7 +395,15 @@ class PlaywrightExecutor:
 
         return self._observe(step_index, f"recovery:{strategy}", task, start_url)
 
-    def _observe(self, step_index: int, action_desc: str, task: str, start_url: str) -> StepResult:
+    def _observe(
+        self,
+        step_index: int,
+        action_desc: str,
+        task: str,
+        start_url: str,
+        *,
+        prev_url: str | None = None,
+    ) -> StepResult:
         """Capture current page state and verify."""
         page = self.page
         url = page.url
@@ -368,6 +427,15 @@ class PlaywrightExecutor:
                 start_url=start_url,
                 check_task_keywords=False,
             )
+            if vr.passed and action_desc.endswith("+Enter") and task_implies_search(task):
+                query = extract_search_query(task)
+                if query and prev_url and url.rstrip("/") == prev_url.rstrip("/"):
+                    q_lower = query.lower()
+                    if q_lower not in url.lower() and q_lower not in page_content.lower():
+                        vr = VerifyResult(
+                            passed=False,
+                            reason=f"Search submitted but page unchanged (query={query!r})",
+                        )
 
         return StepResult(
             step_index=step_index,

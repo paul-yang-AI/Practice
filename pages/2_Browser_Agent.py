@@ -140,6 +140,12 @@ start_url = st.text_input(
 st.session_state["agent_task_text"] = task
 st.session_state["agent_url_text"] = start_url
 
+if start_url.strip() and "google.com" in start_url.strip().lower():
+    st.warning(
+        "⚠️ **Google 不建議用於 demo**：consent 橫幅與動態 DOM 易導致 agent 在 `type` 迴圈中卡住。"
+        "Train eval 使用 Wikipedia；DuckDuckGo 為 held-out 實驗。"
+    )
+
 _agent_running = _is_agent_running()
 if _agent_running:
     st.warning("⏳ 已有任務執行中，請等待完成或按「停止」。")

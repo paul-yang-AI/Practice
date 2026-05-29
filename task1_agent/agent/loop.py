@@ -24,6 +24,18 @@ logger = logging.getLogger(__name__)
 MAX_STEPS_DEFAULT = 10
 MAX_STEPS_SEARCH = 15
 MAX_STEPS_EXTRACT = 12
+_STUCK_TYPE_MIN_REPEATS = 3
+
+
+def _is_stuck_type_loop(steps: list[StepResult], *, min_repeats: int = _STUCK_TYPE_MIN_REPEATS) -> bool:
+    """Detect repeated type actions without URL change (e.g. search-box loops on Google)."""
+    if len(steps) < min_repeats:
+        return False
+    recent = steps[-min_repeats:]
+    if not all(s.action.startswith("type:") for s in recent):
+        return False
+    urls = {s.url.rstrip("/") for s in recent if s.url}
+    return len(urls) <= 1
 
 
 def infer_max_steps(task_description: str) -> int:
@@ -237,6 +249,14 @@ def run(
                         break
                     continue
                 else:
+                    if _is_stuck_type_loop(result.steps):
+                        result.status = "failed"
+                        result.error = (
+                            "Agent stuck: repeated type actions without page change. "
+                            "For search tasks use type with a visible label as selector "
+                            "and the query in value, then press_key Enter if needed."
+                        )
+                        break
                     # Action step passed verification — continue to next LLM plan
                     continue
 

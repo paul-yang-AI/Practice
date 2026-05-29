@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import streamlit as st
 
+from shared_harness import job_store
 from shared_harness.edgar_client import (
     build_sec_document_url,
     build_sec_viewer_url,
@@ -15,7 +17,7 @@ from shared_harness.edgar_client import (
     search_filings,
     search_quality_hint,
 )
-from shared_harness.schemas.sec_schema import ItemStatus, STANDARD_ITEMS
+from shared_harness.schemas.sec_schema import FilingExtraction, ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
 
@@ -381,6 +383,94 @@ def _format_sec_text(text: str) -> str:
     return "\n".join(parts)
 
 
+def _build_sec_markdown(result: FilingExtraction) -> str:
+    lines = [f"# {result.ticker or 'N/A'} 10-K 抽取報告\n\n"]
+    lines.append(f"Accession: {result.accession}\n\n")
+    for item in result.items:
+        name = _ITEM_NAMES.get(item.item_id, "")
+        lines.append(f"## Item {item.item_id} — {name}\n\n")
+        lines.append(
+            f"狀態：{item.status.value}"
+            + (f" | 方式：{item.segment_method}" if item.segment_method else "")
+            + "\n\n"
+        )
+        if item.text:
+            lines.append(item.text[:3000] + "\n\n---\n\n")
+    return "".join(lines)
+
+
+def _cache_sec_downloads(result: FilingExtraction) -> None:
+    accession = result.accession or "filing"
+    st.session_state["sec_download_json"] = result.model_dump_json(indent=2).encode("utf-8")
+    st.session_state["sec_download_md"] = _build_sec_markdown(result).encode("utf-8")
+    st.session_state["sec_download_json_name"] = f"{accession}.json"
+    st.session_state["sec_download_md_name"] = f"{accession}.md"
+
+
+def _log_sec_extraction(
+    result: FilingExtraction | None,
+    *,
+    accession: str,
+    html_len: int,
+    error: str | None = None,
+) -> None:
+    run_id = str(uuid.uuid4())
+    job_store.create_run("sec", run_id=run_id)
+    if result is not None:
+        log = {
+            "accession": accession,
+            "ticker": result.ticker,
+            "cik": result.cik,
+            "html_len": html_len,
+            "extracted": sum(1 for i in result.items if i.status == ItemStatus.EXTRACTED),
+            "missing": sum(1 for i in result.items if i.status == ItemStatus.MISSING),
+            "incorporated": sum(
+                1 for i in result.items if i.status == ItemStatus.INCORPORATED_BY_REFERENCE
+            ),
+            "low_confidence": sum(
+                1 for i in result.items if i.status == ItemStatus.LOW_CONFIDENCE
+            ),
+        }
+        status = "failed" if error else "success"
+    else:
+        log = {"accession": accession, "html_len": html_len}
+        status = "failed"
+    if error:
+        log["error"] = error
+    job_store.insert_step(
+        run_id,
+        0,
+        action=f"extract:{accession}",
+        status=status,
+        log_json=json.dumps(log, default=str),
+    )
+    job_store.mark_run(run_id, status)
+
+
+@st.fragment
+def _sec_download_fragment() -> None:
+    json_bytes = st.session_state.get("sec_download_json")
+    if not json_bytes:
+        return
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            "📥 下載 JSON",
+            data=json_bytes,
+            file_name=st.session_state.get("sec_download_json_name", "filing.json"),
+            mime="application/json",
+            use_container_width=True,
+        )
+    with col2:
+        st.download_button(
+            "📥 下載 Markdown",
+            data=st.session_state.get("sec_download_md", b""),
+            file_name=st.session_state.get("sec_download_md_name", "filing.md"),
+            mime="text/markdown",
+            use_container_width=True,
+        )
+
+
 # --- Page Layout ---
 
 st.markdown(
@@ -523,9 +613,17 @@ if _run_source:
             )
             st.session_state["sec_result"] = result
             st.session_state["sec_html_len"] = len(html)
+            _cache_sec_downloads(result)
+            _log_sec_extraction(result, accession=accession, html_len=len(html))
         except Exception as exc:
             err_msg = str(exc)
             st.error(f"❌ 抽取失敗：{err_msg}")
+            _log_sec_extraction(
+                None,
+                accession=accession,
+                html_len=st.session_state.get("sec_html_len", 0),
+                error=err_msg,
+            )
             if "CIK" in err_msg or "404" in err_msg or "index" in err_msg.lower():
                 st.info(
                     "💡 **常見原因**：\n"
@@ -536,6 +634,9 @@ if _run_source:
 
 result = st.session_state.get("sec_result")
 if result:
+    if st.session_state.get("sec_download_json") is None:
+        _cache_sec_downloads(result)
+
     st.divider()
 
     # Filing metadata card
@@ -579,6 +680,8 @@ if result:
         f"({(extracted + incorporated) / total:.0%})",
     )
 
+    _sec_download_fragment()
+
     st.divider()
 
     # Items grouped by Part
@@ -600,34 +703,3 @@ if result:
                 accession=result.accession,
                 source_url=result.source_url,
             )
-
-    st.divider()
-    col_dl1, col_dl2 = st.columns(2)
-    with col_dl1:
-        st.download_button(
-            "📥 下載 JSON",
-            data=result.model_dump_json(indent=2),
-            file_name=f"{result.accession or 'filing'}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-    with col_dl2:
-        md_lines = [f"# {result.ticker} 10-K 抽取報告\n\n"]
-        md_lines.append(f"Accession: {result.accession}\n\n")
-        for item in result.items:
-            name = _ITEM_NAMES.get(item.item_id, "")
-            md_lines.append(f"## Item {item.item_id} — {name}\n\n")
-            md_lines.append(
-                f"狀態：{item.status.value}"
-                + (f" | 方式：{item.segment_method}" if item.segment_method else "")
-                + "\n\n"
-            )
-            if item.text:
-                md_lines.append(item.text[:3000] + "\n\n---\n\n")
-        st.download_button(
-            "📥 下載 Markdown",
-            data="".join(md_lines),
-            file_name=f"{result.accession or 'filing'}.md",
-            mime="text/markdown",
-            use_container_width=True,
-        )

@@ -15,7 +15,9 @@ Rules:
 - If the page shows the expected result, set done=true
 - When done=true, fill 'result' with the task answer extracted from the page (e.g., the text found, the data extracted, the title, the search results)
 - Be specific with selectors (use visible text/labels)
-- Do NOT repeat the same failed action
+- For type actions: selector = field label/placeholder OR leave empty for searchbox; value = text to enter (never put CSS in selector)
+- On search/find tasks the harness may fill an empty value from your task text — still prefer setting value explicitly
+- Do NOT repeat the same failed action or the same type action on the same URL
 - Prefer the simplest action that advances the task.
 - If stuck after 5+ steps with no progress, set done=true with result explaining what was found.
 - Output valid JSON only, no markdown

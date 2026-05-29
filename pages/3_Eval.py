@@ -127,25 +127,37 @@ def _render_agent_cards(df: pd.DataFrame) -> None:
 
 def _render_live_runs() -> None:
     st.markdown(
-        "此區顯示 **瀏覽器代理頁** 的即時執行紀錄（SQLite），供除錯與檢查失敗案例。"
-        "**不計入** 上方基準 KPI。SEC 自訂抽取目前未寫入 run log。"
+        "此區顯示 **瀏覽器代理** 與 **SEC 自訂抽取** 的即時執行紀錄（SQLite），"
+        "供除錯與檢查失敗案例。**不計入** 上方基準 KPI。"
     )
-    runs = job_store.list_recent_runs(limit=25, task_type="agent")
+    live_filter = st.radio("篩選", ["全部", "Agent", "SEC"], horizontal=True, key="live_run_filter")
+    runs = job_store.list_recent_runs(limit=25)
+    if live_filter == "Agent":
+        runs = [r for r in runs if r.get("task_type") == "agent"]
+    elif live_filter == "SEC":
+        runs = [r for r in runs if r.get("task_type") == "sec"]
+
     if not runs:
-        st.info("尚無代理執行紀錄。請至「瀏覽器代理」頁提交任務。")
+        st.info("尚無執行紀錄。請至「瀏覽器代理」或「SEC 10K」頁提交任務。")
         return
+
+    type_labels = {"agent": "🤖 Agent", "sec": "📄 SEC"}
 
     for run in runs:
         rid = run["id"]
         status = run.get("status", "")
         icon = _status_icon(status)
         short_id = rid[:8]
+        task_type = run.get("task_type") or "?"
+        type_badge = type_labels.get(task_type, task_type)
         usd = float(run.get("usd_total") or 0)
         steps = int(run.get("step_count") or 0)
         llm = int(run.get("llm_calls") or 0)
         created = (run.get("created_at") or "")[:19].replace("T", " ")
 
-        with st.expander(f"{icon} `{short_id}` · {status} · {created} · {steps} steps · ${usd:.4f}"):
+        with st.expander(
+            f"{icon} {type_badge} · `{short_id}` · {status} · {created} · {steps} steps · ${usd:.4f}"
+        ):
             st.caption(f"Run ID: `{rid}`")
             step_rows = job_store.get_run_steps(rid)
             if not step_rows:
@@ -158,6 +170,19 @@ def _render_live_runs() -> None:
                 if log_raw:
                     try:
                         log = json.loads(log_raw)
+                        if task_type == "sec":
+                            summary_bits = []
+                            if log.get("ticker"):
+                                summary_bits.append(f"**{log['ticker']}**")
+                            if log.get("accession"):
+                                summary_bits.append(f"`{log['accession']}`")
+                            if log.get("extracted") is not None:
+                                summary_bits.append(
+                                    f"已抽取 {log['extracted']} · 缺失 {log.get('missing', 0)} · "
+                                    f"合併引用 {log.get('incorporated', 0)}"
+                                )
+                            if summary_bits:
+                                st.caption(" · ".join(summary_bits))
                         if log.get("extracted_result"):
                             st.code(str(log["extracted_result"])[:500], language=None)
                         if log.get("error"):
@@ -279,7 +304,7 @@ with tab_limits:
 | 類型 | 用途 | 資料來源 |
 |------|------|----------|
 | **基準評估** | 可重現 KPI、submission 報告 | `tasks.yaml` / `manifest.json` train split |
-| **即時紀錄** | 使用者自訂任務除錯 | SQLite `job_store`（Agent 頁） |
+| **即時紀錄** | 使用者自訂任務除錯 | SQLite `job_store`（Agent + SEC 抽取頁） |
 | **Held-out** | 考官自行驗證 generalization | 不在 train KPI 內 |
 
 ### Browser Agent — 穩定 / 不穩定
@@ -288,8 +313,10 @@ with tab_limits:
 |------|------|
 | ✅ Train 通過 | example.com、httpbin extract、Wikipedia search、HN、GitHub |
 | ⚠️ Held-out / demo | DuckDuckGo search（headless flaky，UI 可試但不計 KPI） |
+| ⚠️ 不建議 demo | **Google 搜尋**（consent/動態 DOM → type 迴圈；agent 會 stuck 偵測後 fail） |
 | 🚫 不支援 | 登入/CAPTCHA、PDF URL、iframe/shadow DOM、**生成式摘要**（僅抽取頁面文字） |
 | ⚠️ 基礎設施 | Gemini 503 → `plan_failed`（已加 infra 重試） |
+| 🔧 語意修復 | 搜尋任務若 planner 漏填 `value`，harness 從任務文字抽 query 並 role-first 輸入 |
 
 ### SEC 10-K — 穩定 / 困難
 
@@ -298,6 +325,7 @@ with tab_limits:
 | ✅ 良好 | MSFT、INTC（標準 TOC） |
 | ⚠️ 困難 | Citi（大量 incorporated by reference）、iXBRL 複雜 |
 | 🔍 搜尋 | 建議 **ticker**（GOOGL）或 accession；`google` 等單字易 EFTS 雜訊 |
+| 📊 展示 | 結構化文字 + **原始 HTML 片段** tab；SEC viewer deep link |
 | 🚫 未支援 | PDF-only 報表、非英文 20-F |
 
 完整分析見 [docs/analysis.md](../docs/analysis.md) 與 README Known Limitations。
