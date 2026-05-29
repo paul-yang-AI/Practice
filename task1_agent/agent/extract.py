@@ -37,6 +37,8 @@ def page_context_snippet(text: str, max_chars: int = PAGE_CONTEXT_MAX) -> str:
 
 def infer_task_mode(task_description: str) -> str:
     """Route to extract (one-shot read) vs act (multi-step UI) — generic verbs only."""
+    from task1_agent.agent.intent import task_implies_search
+
     t = task_description.lower()
     if any(v in t for v in _ACT_VERBS):
         return "act"
@@ -47,6 +49,8 @@ def infer_task_mode(task_description: str) -> str:
     if "navigate" in t and "verify" in t and "search" not in t:
         if not any(w in t for w in ("repository", "repo", "then go", "and open")):
             return "extract"
+    if task_implies_search(task_description):
+        return "act"
     return "act"
 
 

@@ -9,6 +9,11 @@ _SEARCH_TASK_RE = re.compile(
     re.I,
 )
 
+_QUERY_COMPOUND_SPLIT = re.compile(
+    r"(?:然後|然后|并|並|再|and then|then summarize|then|,\s*and\b|摘要|总结|總結|summarize|summary|整理|簡述)",
+    re.I,
+)
+
 _QUERY_PATTERNS: list[re.Pattern[str]] = [
     re.compile(
         r"(?:search(?:\s+for)?|find|look\s+up|query)\s+(?:for\s+)?['\"]?(.+?)['\"]?"
@@ -16,7 +21,8 @@ _QUERY_PATTERNS: list[re.Pattern[str]] = [
         re.I,
     ),
     re.compile(
-        r"(?:搜[寻尋]|搜索|查詢|寻找|尋找)\s*[「『\"']?(.+?)(?:[。\.]|$)",
+        r"(?:搜[寻尋]|搜索|查詢|寻找|尋找)\s*[「『\"']?(.+?)"
+        r"(?:然後|然后|并|並|再|摘要|总结|總結|[。\.]|$)",
         re.I,
     ),
     re.compile(
@@ -31,6 +37,19 @@ def task_implies_search(task: str) -> bool:
     return bool(_SEARCH_TASK_RE.search(task))
 
 
+def task_implies_summary(task: str) -> bool:
+    """True when the task asks for a summary/synthesis of page content."""
+    return bool(
+        re.search(r"摘要|总结|總結|summarize|summary|整理一下|簡述", task, re.I)
+    )
+
+
+def _trim_search_query(query: str) -> str:
+    """Drop trailing compound clauses (e.g. 然後摘要…) from an extracted query."""
+    parts = _QUERY_COMPOUND_SPLIT.split(query, maxsplit=1)
+    return parts[0].strip(" '\"，。.;")
+
+
 def extract_search_query(task: str) -> str | None:
     """Extract a search/query string from free-form task text."""
     quoted = re.findall(r"['\"]([^'\"]+)['\"]", task)
@@ -43,7 +62,7 @@ def extract_search_query(task: str) -> str | None:
         match = pattern.search(task.strip())
         if not match:
             continue
-        query = match.group(1).strip(" '\"，。.;")
+        query = _trim_search_query(match.group(1))
         if len(query) >= 2:
             return query
     return None

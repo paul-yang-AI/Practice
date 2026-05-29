@@ -89,6 +89,8 @@ def test_infer_max_steps_from_task_wording() -> None:
     assert infer_max_steps("Search DuckDuckGo for foo") == 15
     assert infer_max_steps("Extract the title from the page") == 12
     assert infer_max_steps("Go to example.com") == 10
+    assert infer_max_steps("幫我去搜尋富邦勇士然後摘要一下最近的比賽結果") == 20
+    assert infer_max_steps("在 Google 搜尋 playwright") == 15
 
 
 @pytest.mark.unit

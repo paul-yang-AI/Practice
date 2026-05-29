@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from shared_harness import job_store
 from shared_harness.edgar_client import (
@@ -154,6 +155,56 @@ def _render_quality_badge(item) -> None:
         st.caption("✓ 契約驗證通過（span integrity + token ratio）")
 
 
+def _render_html_snippet_viewer(
+    html_snippet: str,
+    *,
+    anchor: str | None,
+    border_color: str,
+) -> None:
+    """Render SEC HTML snippet in a scrollable viewer that jumps to the item anchor."""
+    anchor_js = json.dumps(anchor or "")
+    safe_snippet = html_snippet.replace("</script>", "<\\/script>")
+    components.html(
+        f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body {{
+  margin: 0; padding: 0; background: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.82rem; line-height: 1.45; color: #111;
+}}
+#sec-viewer {{
+  max-height: 560px; overflow: auto; padding: 0.75rem 1rem;
+  border-left: 4px solid {border_color}; border-radius: 8px;
+  border: 1px solid #e5e7eb; border-left-width: 4px;
+}}
+table {{ width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }}
+td, th {{ padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; vertical-align: top; }}
+</style></head><body>
+<div id="sec-viewer">{safe_snippet}</div>
+<script>
+(function() {{
+  var anchor = {anchor_js};
+  var viewer = document.getElementById("sec-viewer");
+  function scrollToAnchor() {{
+    if (!anchor || !viewer) return;
+    var el = document.getElementById(anchor);
+    if (!el) return;
+    var top = el.getBoundingClientRect().top - viewer.getBoundingClientRect().top + viewer.scrollTop;
+    viewer.scrollTop = Math.max(0, top - 8);
+  }}
+  if (document.readyState === "loading") {{
+    document.addEventListener("DOMContentLoaded", scrollToAnchor);
+  }} else {{
+    scrollToAnchor();
+  }}
+  requestAnimationFrame(scrollToAnchor);
+}})();
+</script></body></html>""",
+        height=580,
+        scrolling=False,
+    )
+
+
 def _sec_item_links(
     *,
     accession: str | None,
@@ -222,11 +273,10 @@ def _render_item(
             with tab_html:
                 if item.html_snippet:
                     st.caption("保留原始表格與排版（來自 EDGAR HTML 片段）")
-                    st.markdown(_SEC_CONTENT_CSS, unsafe_allow_html=True)
-                    st.markdown(
-                        f'<div class="sec-html-viewer" style="border-left: 4px solid {color};">'
-                        f"{item.html_snippet}</div>",
-                        unsafe_allow_html=True,
+                    _render_html_snippet_viewer(
+                        item.html_snippet,
+                        anchor=item.source_anchor,
+                        border_color=color,
                     )
                 else:
                     st.info(

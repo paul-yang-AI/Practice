@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 MAX_STEPS_DEFAULT = 10
 MAX_STEPS_SEARCH = 15
+MAX_STEPS_SEARCH_SUMMARY = 20
 MAX_STEPS_EXTRACT = 12
 _STUCK_TYPE_MIN_REPEATS = 3
 
@@ -40,8 +41,15 @@ def _is_stuck_type_loop(steps: list[StepResult], *, min_repeats: int = _STUCK_TY
 
 def infer_max_steps(task_description: str) -> int:
     """Heuristic step budget from task wording — generic, not site-specific."""
+    from task1_agent.agent.intent import task_implies_search, task_implies_summary
+
     t = task_description.lower()
-    if any(w in t for w in ("search", "find", "form", "submit", "fill")):
+    implies_search = task_implies_search(task_description) or any(
+        w in t for w in ("search", "find", "form", "submit", "fill")
+    )
+    if implies_search and task_implies_summary(task_description):
+        return MAX_STEPS_SEARCH_SUMMARY
+    if implies_search:
         return MAX_STEPS_SEARCH
     if any(w in t for w in ("extract", "navigate", "verify", "multiple")):
         return MAX_STEPS_EXTRACT
