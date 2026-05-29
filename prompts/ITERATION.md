@@ -346,3 +346,12 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   3. `shared_harness/sec_ui.py`: `heldout_outcome_badge()` for testable badge labels.
   4. README Reviewer Quick Start, SUBMISSION smoke checklist, Home copy updated.
 - **Validation**: `tests/unit/test_sec_ui.py` (heldout tab context + badges); train tab still filters `split=train` only.
+
+### `plan_reposition` (2026-05-29)
+
+- **Failed path**: `PLAN.md` still referenced Day 1–7 / open Phase gates after many iterations; `.cursorrules` forced agents to read stale plan; README treated PLAN and ITERATION as equal iteration sources.
+- **Resolution**:
+  1. Rewrote `PLAN.md` as **Architecture & Invariants** + Shipped tracks; moved Phase 0–3 to Historical appendix.
+  2. `.cursorrules`: read PLAN (invariants) + skim ITERATION (latest entries).
+  3. README: ITERATION primary for iteration narrative; PLAN = invariants summary.
+- **Validation**: No code change; doc cross-links consistent with test brief (Git + prompts/ + README + analysis).

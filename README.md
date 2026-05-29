@@ -6,7 +6,7 @@
 - **任務二　SEC 10-K 財報抽取（SEC 10-K Extraction）** — 從美國證交會（SEC）的 10-K 年報 HTML 中，把法定的 Item 1～16 各章節切分、驗證並結構化輸出。
 - **共用層　`shared_harness/`** — LLM 路由、成本/預算熔斷、SQLite 任務紀錄、EDGAR 用戶端、Pydantic 資料契約、評估引擎等。
 
-> 想看「我是怎麼一步步迭代過來的」，請讀 [PLAN.md](PLAN.md)（階段計畫）與 [prompts/ITERATION.md](prompts/ITERATION.md)（失敗→修正→驗證的過程紀錄）。
+> **迭代過程**：主讀 [prompts/ITERATION.md](prompts/ITERATION.md)（失敗→修正→驗證）；[PLAN.md](PLAN.md) 為初期計畫與架構不變式摘要。
 
 ---
 
@@ -541,7 +541,7 @@ python scripts/demo_circuit_breaker.py                  # 預算熔斷示範
 
 | 階段 | 工具 | 產出 |
 |---|---|---|
-| 架構與計畫 | Cursor | PLAN.md、[prompts/README.md](prompts/README.md) |
+| 架構與不變式 | Cursor | [PLAN.md](PLAN.md)（摘要）、[prompts/README.md](prompts/README.md) |
 | 10-K 分段 / 指標 | Cursor（TDD） | `test_bs4_anchor.py`、`test_regex_boundary_fallback.py` |
 | 代理恢復設計 | Cursor + PLAN | `recovery.py` + `prompts/sops/recovery.md` |
 | 評估設計 | Cursor | `manifest.json`、`tasks.yaml` |

@@ -1,4 +1,4 @@
-Before architectural decisions or a new day's task, MUST read PLAN.md.
+Before architectural decisions or a new task: read PLAN.md (invariants) and skim prompts/ITERATION.md (latest 2–3 entries).
 
 - Pydantic for all LLM outputs; parse via llm_parse.py then model_validate_json.
 - Agent: classified recovery + per-step verify; NO blind retry loops.

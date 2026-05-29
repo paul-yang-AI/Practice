@@ -1,42 +1,25 @@
-# Whaleforce Coding Test — PLAN (Phase 0–3)
+# Architecture & Invariants
 
-> Full spec: see project plan. This is the tactical summary for daily execution.
+> **Role of this file**: frozen **architecture constraints** and initial phase summary — not a living task list.
+> **Full iteration log** (Failed Path → Resolution → Validation): [`prompts/ITERATION.md`](prompts/ITERATION.md).
+> **Submission audit trail** (per test brief): Git history + `prompts/` + README + [`docs/analysis.md`](docs/analysis.md).
 
 ## Goal
 
 Monorepo with **task1_agent/** (browser agent), **task2_sec/** (10-K pipeline), **shared_harness/** (LLM router, cost, EDGAR, job store).
 
-## Phase Gates
-
-| Phase | Deliver | Gate |
-|-------|---------|------|
-| **0** | Scaffold + harness stubs + Docker smoke | `pytest -m unit` green; `test_llm_parse`; Playwright smoke |
-| **1** | SEC fetch→segment→validate→UI | L1 SEC tests; `test_sec_manifest`; CSV ≥3 rows |
-| **2** | Agent loop + recovery + Refresh UI | `test_recovery_routing`; 2 smoke tasks |
-| **3** | README, ITERATION, analysis, Zeabur | L3 train CSV; Harness docs |
-
-**Rule**: Phase 1 before Phase 2. L1 never cut. Commit at each phase gate.
-
-## Architecture
+## Architecture (do not drift without updating tests + ITERATION)
 
 - **Frontend**: Streamlit multi-page, single Dockerfile (Playwright base image)
 - **LLM**: litellm only; Tier0 = rules/BS4 (zero token); Tier1/2 via `llm_router`
 - **SEC**: all HTTP via `edgar_client.py`; cache at `task2_sec/eval/cache/`
-- **Agent**: sync Playwright in background thread; DB + Refresh (no SSE)
-- **Validation**: span integrity `body[start:end]==text`; classified recovery (no blind retry)
-
-## Day Reference
-
-- **Day 1 (Phase 0)**: scaffold, edgar+cost+job_store, prompt_loader, test_llm_parse, Docker
-- **Day 2**: normalize, segment, regex fallback (zero LLM)
-- **Day 3**: validate, arbiter, llm_router fallback
-- **Day 4**: gold eval, SEC UI, run_eval.py
-- **Day 5–6**: agent loop, recovery, Streamlit agent page
-- **Day 7**: docs, analysis FMA, deploy
+- **Agent**: sync Playwright in background thread; SQLite job store (no SSE)
+- **Validation**: span integrity `body[start:end]==text`; classified recovery via `STRATEGY_TABLE` (no blind retry)
+- **Eval discipline**: train split for KPI; held-out for generalization — do not tune on held-out
 
 ## MVI Stop-Loss
 
-If behind: keep Phase 1 CSV + L1 + 2 agent smoke; cut Blind Critic / extra L2.
+If behind schedule: keep SEC train CSV + L1 tests + 2 agent smoke; cut Blind Critic / extra L2 / non-essential UI.
 
 ## Env
 
@@ -47,11 +30,24 @@ OPENROUTER_API_KEY=...
 RUN_BUDGET_USD=20
 ```
 
-## Post-Phase-3 (P0–P3 + Eval Expansion)
+## Shipped tracks (completed)
 
-| Track | Deliver | Gate |
+- **Phase 0–3**: scaffold → SEC pipeline + UI → agent loop + recovery → docs, Zeabur, L3 eval (see `git log`)
+- **P0**: eval honesty — `content_quality.py`, strict required-item check, `toc_stub_required_item`
+- **P1–P2**: Tier0 robustness; surgical LLM — `segment_classify.py`, arbiter, `--tier0-only` / `--with-llm`
+- **Eval expansion**: 11-filing manifest; `heldout_baseline.json` (5/8 ok); honest JPM / AAPL / KSCP gaps
+- **Prompts audit**: `prompts/README.md`, ITERATION entries, arbiter SOP sync
+- **UI presentation**: SEC Train / Held-out / Custom tabs; Eval held-out baseline tab
+
+Details and test evidence for each: [`prompts/ITERATION.md`](prompts/ITERATION.md).
+
+## Historical — Phase gates (Phase 0–3, all done)
+
+| Phase | Deliver | Gate |
 |-------|---------|------|
-| **P0** | Eval honesty — `content_quality.py`, strict required-item check | Train KPI unchanged; `toc_stub_required_item` category |
-| **P1–P2** | Tier0 robustness + surgical LLM classify/arbiter | `segment_classify.py`; `run_eval.py --tier0-only` / `--with-llm` |
-| **Eval expansion** | 11-filing manifest, held-out baseline scripts | `heldout_baseline.json` 5/8 ok; honest JPM/AAPL/KSCP gaps in docs |
-| **Prompts audit** | `prompts/README.md`, ITERATION entries, arbiter SOP sync | Reviewer-readable AI collaboration trail |
+| **0** | Scaffold + harness stubs + Docker smoke | `pytest -m unit`; Playwright smoke |
+| **1** | SEC fetch→segment→validate→UI | L1 SEC; `test_sec_manifest` |
+| **2** | Agent loop + recovery + UI | `test_recovery_routing`; smoke tasks |
+| **3** | README, ITERATION, analysis, deploy | L3 train CSV |
+
+Original day-by-day schedule (Day 1–7) retired; timeline preserved in commit history.
