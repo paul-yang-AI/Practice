@@ -18,6 +18,7 @@
 - [x] `pytest -m eval` — L3 SEC + agent manifest
 - [x] `python scripts/run_eval.py --split train`
 - [x] `python scripts/run_agent_eval.py` → `reports/eval_train.csv` + `eval_summary.json`
+- [x] `python scripts/run_heldout_baseline.py` → `reports/heldout_baseline.json`
 - [x] `python scripts/run_heldout_snapshot.py` → `reports/heldout_snapshot.json`
 - [x] `python scripts/demo_circuit_breaker.py` — budget demo
 - [x] `.env` not tracked (`git ls-files .env` empty)
@@ -63,13 +64,15 @@ Port: **8501** (Networking must map to container 8501).
 .venv\Scripts\python.exe -m pytest -m eval
 .venv\Scripts\python.exe scripts/run_eval.py --split train
 .venv\Scripts\python.exe scripts/run_agent_eval.py
+.venv\Scripts\python.exe scripts/run_heldout_baseline.py
+.venv\Scripts\python.exe scripts/cache_heldout_filings.py
 .venv\Scripts\python.exe scripts/run_heldout_snapshot.py
 .venv\Scripts\python.exe scripts/demo_circuit_breaker.py
 streamlit run streamlit_app.py
 ```
 
-## Known eval numbers (honest, from CSV)
+## Known eval numbers (honest, from CSV / baseline)
 
 - **SEC train**: 3/3 filings `failure_category=ok`; Tier0 $0.00/filing
+- **SEC held-out (Tier0, 8 cached)**: 5/8 ok; 5/8 strict required pass — see `reports/heldout_baseline.json`
 - **Agent train**: 5/5 success (100%); silent_failure=0; search validated on Wikipedia (DDG heldout)
-- **Held-out BRK.B**: 4/4 required (local snapshot only)

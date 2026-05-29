@@ -47,6 +47,11 @@ _SECTION_NAME_MAP: list[tuple[str, str]] = [
     (r"\n\s*Form\s+10-K\s+Summary\s*\n", "16"),
 ]
 
+_SECTION_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(pattern_str, re.IGNORECASE), item_id)
+    for pattern_str, item_id in _SECTION_NAME_MAP
+]
+
 
 STANDARD_10K_ITEMS = [
     "1", "1A", "1B", "1C", "2", "3", "4",
@@ -252,6 +257,9 @@ def _normalize_item_id(raw: str) -> str:
     return raw.lstrip("0") or raw
 
 
+_TOC_HTML_SCAN_CHARS = 900_000  # TOC lives in the document head; avoid parsing multi-MB HTML
+
+
 class Segmenter:
     def segment(
         self,
@@ -261,26 +269,46 @@ class Segmenter:
         use_llm_fallback: bool = True,
     ) -> tuple[str, list[SegmentResult]]:
         body = normalize(html)
-        toc_hits = self._segment_from_toc(html, body)
-        regex_hits = self._segment_from_regex(body)
+        toc_zones = _find_toc_zones(body)
+        starts_by_id: dict[str, list[int]] = {}
+        for m in HEADER_RE.finditer(body):
+            item_id = _normalize_item_id(m.group("id"))
+            starts_by_id.setdefault(item_id, []).append(m.start())
+
+        name_hits_cache: list[SegmentResult] | None = None
+
+        def get_name_hits() -> list[SegmentResult]:
+            nonlocal name_hits_cache
+            if name_hits_cache is None:
+                name_hits_cache = self._segment_from_section_names(body, toc_zones=toc_zones)
+            return name_hits_cache
+
+        def name_by_id_latest() -> dict[str, SegmentResult]:
+            by_id: dict[str, SegmentResult] = {}
+            for hit in get_name_hits():
+                prev = by_id.get(hit.item_id)
+                if prev is None or hit.start > prev.start:
+                    by_id[hit.item_id] = hit
+            return by_id
+
+        toc_hits = self._segment_from_toc(
+            html, body, toc_zones=toc_zones, starts_by_id=starts_by_id
+        )
+        regex_hits = self._segment_from_regex(
+            body, toc_zones=toc_zones, starts_by_id=starts_by_id
+        )
         merged = self._merge_segments(toc_hits, regex_hits, len(body))
 
         if _needs_section_name_fallback(merged, len(body)):
-            name_hits = self._segment_from_section_names(body)
+            name_hits = get_name_hits()
             if name_hits:
                 name_ids = {s.item_id for s in name_hits}
                 supplementary = [s for s in merged if s.item_id not in name_ids]
                 merged = self._merge_segments(name_hits, supplementary, len(body))
 
-        merged = self._upgrade_short_segments(body, merged)
-        name_hits_for_scrub = self._segment_from_section_names(body)
-        name_by_id_scrub: dict[str, SegmentResult] = {}
-        for hit in name_hits_for_scrub:
-            prev = name_by_id_scrub.get(hit.item_id)
-            if prev is None or hit.start > prev.start:
-                name_by_id_scrub[hit.item_id] = hit
-        merged = _scrub_toc_stub_segments(body, merged, name_by_id=name_by_id_scrub)
-        merged = self._supplement_from_section_names(body, merged)
+        merged = self._upgrade_short_segments(body, merged, name_by_id=name_by_id_latest())
+        merged = _scrub_toc_stub_segments(body, merged, name_by_id=name_by_id_latest())
+        merged = self._supplement_from_section_names(body, merged, name_by_id=name_by_id_latest())
 
         found_ids = {s.item_id for s in merged}
         missing_count = sum(1 for iid in STANDARD_10K_ITEMS if iid not in found_ids)
@@ -312,15 +340,19 @@ class Segmenter:
         return body, merged
 
     def _upgrade_short_segments(
-        self, body: str, segments: list[SegmentResult]
+        self,
+        body: str,
+        segments: list[SegmentResult],
+        *,
+        name_by_id: dict[str, SegmentResult] | None = None,
     ) -> list[SegmentResult]:
         """Replace TOC index stubs with later section_name hits when available."""
-        name_hits = self._segment_from_section_names(body)
-        name_by_id: dict[str, SegmentResult] = {}
-        for hit in name_hits:
-            prev = name_by_id.get(hit.item_id)
-            if prev is None or hit.start > prev.start:
-                name_by_id[hit.item_id] = hit
+        if name_by_id is None:
+            name_by_id = {}
+            for hit in self._segment_from_section_names(body):
+                prev = name_by_id.get(hit.item_id)
+                if prev is None or hit.start > prev.start:
+                    name_by_id[hit.item_id] = hit
 
         upgraded = False
         short_limit = _scale_short_segment_chars(len(body))
@@ -346,16 +378,20 @@ class Segmenter:
         return segments
 
     def _supplement_from_section_names(
-        self, body: str, segments: list[SegmentResult]
+        self,
+        body: str,
+        segments: list[SegmentResult],
+        *,
+        name_by_id: dict[str, SegmentResult] | None = None,
     ) -> list[SegmentResult]:
         """Add section_name hits for items removed as TOC stubs or never found."""
         found = {s.item_id for s in segments}
-        name_hits = self._segment_from_section_names(body)
-        name_by_id: dict[str, SegmentResult] = {}
-        for hit in name_hits:
-            prev = name_by_id.get(hit.item_id)
-            if prev is None or hit.start > prev.start:
-                name_by_id[hit.item_id] = hit
+        if name_by_id is None:
+            name_by_id = {}
+            for hit in self._segment_from_section_names(body):
+                prev = name_by_id.get(hit.item_id)
+                if prev is None or hit.start > prev.start:
+                    name_by_id[hit.item_id] = hit
 
         added = False
         for item_id, hit in name_by_id.items():
@@ -371,30 +407,53 @@ class Segmenter:
             seg.end = segments[i + 1].start if i + 1 < len(segments) else body_len
         return segments
 
-    def _segment_from_toc(self, html: str, body: str) -> list[SegmentResult]:
+    def _segment_from_toc(
+        self,
+        html: str,
+        body: str,
+        *,
+        toc_zones: list[tuple[int, int]] | None = None,
+        starts_by_id: dict[str, list[int]] | None = None,
+    ) -> list[SegmentResult]:
         """Discover item ids from TOC anchors; positions resolved via regex on body."""
-        soup = BeautifulSoup(html, "lxml")
+        html_for_toc = (
+            html
+            if len(html) <= 2_000_000
+            else html[:_TOC_HTML_SCAN_CHARS]
+        )
+        soup = BeautifulSoup(html_for_toc, "lxml")
+        id_index = {
+            tag.get("id"): tag
+            for tag in soup.find_all(True, id=True)
+            if tag.get("id")
+        }
         item_ids: set[str] = set()
         for link in soup.find_all("a", href=True):
             href = link["href"]
             if not href.startswith("#"):
                 continue
             anchor_id = href[1:]
-            target = soup.find(id=anchor_id)
+            target = id_index.get(anchor_id)
             if target is None:
-                link_text = normalize(str(link))
+                link_text = link.get_text(" ", strip=True)
                 m = HEADER_RE.search(link_text.split("\n", 1)[0])
                 if m:
                     item_ids.add(_normalize_item_id(m.group("id")))
                 continue
-            header_text = normalize(str(target)).split("\n", 1)[0].strip()
+            header_text = target.get_text(" ", strip=True).split("\n", 1)[0].strip()
             m = HEADER_RE.search(header_text)
             if m:
                 item_ids.add(_normalize_item_id(m.group("id")))
 
+        if starts_by_id is None:
+            starts_by_id = {}
+            for m in HEADER_RE.finditer(body):
+                item_id = _normalize_item_id(m.group("id"))
+                starts_by_id.setdefault(item_id, []).append(m.start())
+
         results: list[SegmentResult] = []
-        for item_id in sorted(item_ids, key=lambda x: self._find_content_header_start(body, x)):
-            start = self._find_content_header_start(body, item_id)
+        for item_id in sorted(item_ids, key=lambda x: self._header_start(body, x, starts_by_id, toc_zones)):
+            start = self._header_start(body, item_id, starts_by_id, toc_zones)
             if start >= 0:
                 results.append(
                     SegmentResult(
@@ -406,15 +465,34 @@ class Segmenter:
                 )
         return results
 
-    def _segment_from_regex(self, body: str) -> list[SegmentResult]:
-        starts_by_id: dict[str, list[int]] = {}
-        for m in HEADER_RE.finditer(body):
-            item_id = _normalize_item_id(m.group("id"))
-            starts_by_id.setdefault(item_id, []).append(m.start())
+    def _header_start(
+        self,
+        body: str,
+        item_id: str,
+        starts_by_id: dict[str, list[int]],
+        toc_zones: list[tuple[int, int]] | None,
+    ) -> int:
+        starts = starts_by_id.get(item_id, [])
+        if not starts:
+            return -1
+        return self._pick_best_start(starts, body, toc_zones=toc_zones)
+
+    def _segment_from_regex(
+        self,
+        body: str,
+        *,
+        toc_zones: list[tuple[int, int]] | None = None,
+        starts_by_id: dict[str, list[int]] | None = None,
+    ) -> list[SegmentResult]:
+        if starts_by_id is None:
+            starts_by_id = {}
+            for m in HEADER_RE.finditer(body):
+                item_id = _normalize_item_id(m.group("id"))
+                starts_by_id.setdefault(item_id, []).append(m.start())
 
         hits: list[SegmentResult] = []
         for item_id, starts in starts_by_id.items():
-            start = self._pick_best_start(starts, body)
+            start = self._pick_best_start(starts, body, toc_zones=toc_zones)
             hits.append(
                 SegmentResult(
                     item_id=item_id,
@@ -425,7 +503,13 @@ class Segmenter:
             )
         return hits
 
-    def _pick_best_start(self, starts: list[int], body: str) -> int:
+    def _pick_best_start(
+        self,
+        starts: list[int],
+        body: str,
+        *,
+        toc_zones: list[tuple[int, int]] | None = None,
+    ) -> int:
         """Choose the best header position among multiple matches.
 
         Prefer occurrences outside dynamically detected TOC index zones; fall back
@@ -434,7 +518,8 @@ class Segmenter:
         if len(starts) == 1:
             return starts[0]
 
-        toc_zones = _find_toc_zones(body)
+        if toc_zones is None:
+            toc_zones = _find_toc_zones(body)
         if toc_zones:
             outside = [s for s in starts if not _in_toc_zone(s, toc_zones)]
             if outside:
@@ -450,13 +535,18 @@ class Segmenter:
 
         return starts[-1]
 
-    def _segment_from_section_names(self, body: str) -> list[SegmentResult]:
+    def _segment_from_section_names(
+        self,
+        body: str,
+        *,
+        toc_zones: list[tuple[int, int]] | None = None,
+    ) -> list[SegmentResult]:
         """Fallback: detect sections by their standard 10-K section titles."""
-        toc_zones = _find_toc_zones(body)
+        if toc_zones is None:
+            toc_zones = _find_toc_zones(body)
         content_start = _content_start_for_names(len(body), toc_zones)
         hits: list[SegmentResult] = []
-        for pattern_str, item_id in _SECTION_NAME_MAP:
-            pattern = re.compile(pattern_str, re.IGNORECASE)
+        for pattern, item_id in _SECTION_NAME_PATTERNS:
             matches = list(pattern.finditer(body))
             if not matches:
                 continue
@@ -498,15 +588,25 @@ class Segmenter:
             )
         return hits
 
-    def _find_content_header_start(self, body: str, item_id: str) -> int:
-        starts = [
-            m.start()
-            for m in HEADER_RE.finditer(body)
-            if _normalize_item_id(m.group("id")) == item_id
-        ]
+    def _find_content_header_start(
+        self,
+        body: str,
+        item_id: str,
+        *,
+        starts_by_id: dict[str, list[int]] | None = None,
+        toc_zones: list[tuple[int, int]] | None = None,
+    ) -> int:
+        if starts_by_id is None:
+            starts = [
+                m.start()
+                for m in HEADER_RE.finditer(body)
+                if _normalize_item_id(m.group("id")) == item_id
+            ]
+        else:
+            starts = starts_by_id.get(item_id, [])
         if not starts:
             return -1
-        return self._pick_best_start(starts, body)
+        return self._pick_best_start(starts, body, toc_zones=toc_zones)
 
     def _merge_segments(
         self,

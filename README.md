@@ -280,24 +280,61 @@ whaleforce-coding-test/
 
 ## Eval Set 選樣理由與侷限
 
-目前 train 集 3 檔 + heldout 1 檔，**刻意覆蓋不同格式變異**，但也必須誠實說明侷限：
+### Train（3 檔）— 結構變異最小充分集
+
+Train 集**刻意不堆 ticker 數量**，而是用三檔走過三條不同程式路徑（Tier0、$0/filing KPI）：
 
 | Filing | 代表的變異維度 | 走到的程式路徑 |
 |---|---|---|
 | **MSFT** | 標準 iXBRL、規矩 Item 標題 | TOC + regex（happy path） |
-| **INTC** | 交叉引用索引格式（Item → 頁碼） | regex + `is_page_reference_text` |
-| **Citi** | 金融業、超大 TOC、incorporated by reference、裸頁碼索引 | section_name 替代標題 + TOC stub 清除 |
-| **BRK.B**（heldout） | K-1 式 TOC 變體 | section_name |
+| **INTC** | 交叉引用索引（Item → `Pages N`） | regex + `cross_ref` 標註 |
+| **Citi** | 金融 mega-TOC、裸頁碼索引、incorporated | section_name + TOC stub 清除 |
 
-**共同點（也是盲點）**：全是 2024–2025 近期檔、超大型股、主流申報工具產生的 iXBRL。以下變異軸**尚未納入** eval，但已在 Future Work / 擴充計畫中討論：
+### Held-out（11 檔 manifest，依快取條件執行）
 
-- 舊式 pre-iXBRL 純 HTML（2007–2010 `<font>`/table 排版）
-- 小型股 / Smaller Reporting Company（雜亂 HTML、精簡揭露）
-- REIT / 礦業（Item 4 Mine Safety 有真實內容）
-- 10-K/A 修正件（Part III 補件、其餘 item 合法缺漏）
-- 同公司跨年度格式漂移（縱向對照）
+| Filing | 變異軸 | 備註 |
+|---|---|---|
+| **BRK.B** | K-1 式 TOC | 永遠執行（有預設快取） |
+| **MSFT FY2020** | 縱向格式漂移 | `cache_optional` |
+| **O (REIT)** | 不動產 REIT 結構 | `cache_optional` |
+| **AAPL 2010** | pre-iXBRL HTML | `cache_optional` |
+| **JPM** | 第二大型銀行 TOC | 驗證 Citi heuristics 可泛化 |
+| **NEM** | 礦業 / Item 4 Mine Safety | `cache_optional` |
+| **GROW** | 精簡型小型 issuer | `cache_optional` |
+| **KSCP 10-K/A** | Part III 修正件 | 合法 missing 語意 |
 
-**已知 eval 方法論限制**：gold 邊界由管線輸出再生成（循環）；`required_items` 原先只看 `extracted` 狀態——**已補上 content-quality 指標**（TOC stub 不算必需項通過）。另以 span/token/header 契約與手動 spot-check（如 Citi 7A）補足。
+```bash
+python scripts/cache_heldout_filings.py      # 下載 held-out HTML 至 eval/cache/
+python scripts/run_heldout_baseline.py      # Tier0 baseline → reports/heldout_baseline.json
+python scripts/run_heldout_baseline.py --with-llm  # 可選：LLM 增量路徑對照
+```
+
+手動 spot-check 紀錄見 **[docs/eval_spot_checks.md](docs/eval_spot_checks.md)**。
+
+### 目前抽取得好的 filings（範例）
+
+| 公司 | Accession | 說明 |
+|---|---|---|
+| **MSFT** | `0000950170-24-087843` | 標準 iXBRL；Items 1/1A/7/8 完整原文 |
+| **INTC** | `0000050863-25-000009` | 交叉引用索引；Item 1/8 為 `Pages N` 索引（合法 cross-ref） |
+| **Citi** | `0000831001-25-000067` | Item 7/7A/8 真實內文；Item 10/14 incorporated |
+| **BRK.B**（held-out） | `0000950170-25-025210` | K-1 式 TOC；section_name 兜底 |
+
+### 仍有困難 / 尚未支援（誠實邊界）
+
+| 類型 | 例子 | 現況 |
+|---|---|---|
+| **pre-iXBRL 舊 HTML** | AAPL 2010 | held-out **2/4** required；`missing_item_header` |
+| **第二大型銀行 TOC** | JPM | held-out **2/4**；`toc_stub_required_item`（Citi 規則未完全泛化） |
+| **10-K/A 修正件** | KSCP | 僅 Part III 補件；**0/4** required（預期行為） |
+| **PDF-only 舊 filing** | 2000 年代部分 OTC | 不支援（管線只處理 HTML） |
+| **20-F 等非 10-K** | 外商 issuer | 未測試、未支援 |
+| **7A 嵌在 Item 7 內** | 部分 issuer 無獨立 7A 標題 | 可能 `missing` 或邊界不完整 |
+| **Item 內表格結構** | 任何大型 iXBRL | normalize 壓平表格；展示層重排版 |
+
+**方法論限制**：train gold 由 Tier0 管線輸出再生成（循環）；`required_items` 已加 **content-quality**（TOC stub 不算通過）。契約指標（span / token / header）+ spot-check 補足。
+
+**效能**：Citi 等 mega-HTML filing（~17MB）已優化 TOC 解析（僅掃描文件前段 + 索引 id lookup），單份抽取約 **4–6 秒**（本地 Tier0）。
 
 ---
 
@@ -311,7 +348,7 @@ whaleforce-coding-test/
 |---|---|
 | **Content-quality 指標** | `task2_sec/pipeline/content_quality.py`：`is_likely_toc_stub()`、`assess_required_item()` |
 | **Eval 整合** | `eval_runner.py`：`toc_stub_count`、`required_quality_failures`、失敗類別 `toc_stub_required_item`；必需項嚴格檢查（TOC stub 不算 found） |
-| **擴充 manifest** | 新增 MSFT FY2020（縱向）、REIT（O）、pre-iXBRL（AAPL 2010）held-out 條目，`cache_optional: true`（有快取才跑，不拖垮 CI） |
+| **擴充 manifest** | 11 檔 held-out（BRK + 7 optional 變異軸）；`cache_heldout_filings.py` |
 | **Gold 出處** | `manifest.json` → `gold_provenance`；`scripts/regenerate_gold.py` 固定 `use_llm_fallback=False` 並寫入 `provenance` |
 | **「抽好」定義** | 正確狀態 + 零幻覺原文；`missing` / `cross-ref` / `incorporated` 亦為合法結果（見 analysis） |
 
@@ -400,7 +437,7 @@ python scripts/run_eval.py --split heldout --tier0-only # BRK.B + 已快取之 o
 python scripts/run_eval.py --split train --with-llm --with-arbiter  # LLM 增量路徑
 python scripts/regenerate_gold.py                     # 重生成 train gold（Tier0 only）
 python scripts/run_agent_eval.py                        # SEC + 代理實跑 → CSV + summary
-python scripts/run_heldout_snapshot.py                  # BRK.B heldout（僅本地）
+python scripts/run_heldout_snapshot.py                  # 精簡 held-out 快照
 python scripts/demo_circuit_breaker.py                  # 預算熔斷示範
 ```
 

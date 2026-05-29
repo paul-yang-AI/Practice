@@ -29,7 +29,8 @@
       "label": "incorporation_by_reference",
       "split": "train",
       "stress": [
-        "items_10_14_reference"
+        "items_10_14_reference",
+        "bank_mega_toc"
       ],
       "required_items": [
         "1A",
@@ -60,13 +61,13 @@
         "format_drift"
       ],
       "cache_optional": true,
-      "notes": "Same issuer, FY2020 — tests cross-year format drift without train tuning."
+      "notes": "Same issuer FY2020 — cross-year format drift."
     },
     {
       "ticker": "O",
       "cik": "726728",
-      "accession": "0001628280-25-008142",
-      "url": "https://www.sec.gov/Archives/edgar/data/726728/000162828025008142/o-20241231.htm",
+      "accession": "0000726728-25-000055",
+      "url": "https://www.sec.gov/Archives/edgar/data/726728/000072672825000055/o-20241231.htm",
       "label": "heldout_reit",
       "split": "heldout",
       "stress": [
@@ -74,7 +75,7 @@
         "real_estate"
       ],
       "cache_optional": true,
-      "notes": "REIT filing variant — optional until HTML is cached locally."
+      "notes": "REIT filing variant."
     },
     {
       "ticker": "AAPL",
@@ -88,7 +89,63 @@
         "legacy_html"
       ],
       "cache_optional": true,
-      "notes": "Pre-iXBRL HTML layout — optional; fetch once to populate eval/cache/."
+      "notes": "Pre-iXBRL HTML layout (2010)."
+    },
+    {
+      "ticker": "JPM",
+      "cik": "19617",
+      "accession": "0000019617-25-000270",
+      "url": "https://www.sec.gov/Archives/edgar/data/19617/000001961725000270/jpm-20241231.htm",
+      "label": "heldout_bank_second",
+      "split": "heldout",
+      "stress": [
+        "bank_mega_toc",
+        "incorporation_by_reference"
+      ],
+      "cache_optional": true,
+      "notes": "Second large bank — validates Citi TOC heuristics generalize."
+    },
+    {
+      "ticker": "NEM",
+      "cik": "1164727",
+      "accession": "0001164727-25-000011",
+      "url": "https://www.sec.gov/Archives/edgar/data/1164727/000116472725000011/nem-20241231.htm",
+      "label": "heldout_mining",
+      "split": "heldout",
+      "stress": [
+        "mining",
+        "item_4_mine_safety"
+      ],
+      "cache_optional": true,
+      "notes": "Mining issuer — Item 4 Mine Safety often has real prose."
+    },
+    {
+      "ticker": "GROW",
+      "cik": "754811",
+      "accession": "0001437749-24-028889",
+      "url": "https://www.sec.gov/Archives/edgar/data/754811/000143774924028889/usglobal20240630_10k.htm",
+      "label": "heldout_src",
+      "split": "heldout",
+      "stress": [
+        "smaller_reporting_company",
+        "compact_filing"
+      ],
+      "cache_optional": true,
+      "notes": "Compact advisory-firm 10-K — stresses Tier0 on smaller filers."
+    },
+    {
+      "ticker": "KSCP",
+      "cik": "1600983",
+      "accession": "0001558370-25-006009",
+      "url": "https://www.sec.gov/Archives/edgar/data/1600983/000155837025006009/kscp-20241231x10ka.htm",
+      "label": "heldout_10ka_amendment",
+      "split": "heldout",
+      "stress": [
+        "10ka_amendment",
+        "part_iii_late_file"
+      ],
+      "cache_optional": true,
+      "notes": "10-K/A filing Part III amendment — many Items legitimately absent in original 10-K."
     }
   ],
   "gold_items": [
@@ -112,8 +169,10 @@
     "use_llm_fallback": false,
     "use_arbiter": false,
     "regenerate_script": "scripts/regenerate_gold.py",
+    "heldout_spot_checks": "docs/eval_spot_checks.md",
     "spot_checks": [
-      "Citi Item 7A: verified real MARKET RISK body (~146k chars), not TOC index row"
+      "Citi Item 7A: verified real MARKET RISK body (~146k chars), not TOC index row",
+      "BRK.B Item 1/7: manual SEC viewer spot-check (see eval_spot_checks.md)"
     ]
   }
 }

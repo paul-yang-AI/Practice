@@ -174,7 +174,27 @@ Train split (3 filings) + heldout (BRK.B) were chosen to stress **different stru
 
 **Methodology caveats**: gold boundaries are pipeline-generated (circular). **As of P0**, `required_items` also use **content-quality** checks (`toc_stub` on required items → eval failure `toc_stub_required_item`). We compensate with contract metrics (span/token/header) and targeted spot-checks — e.g. Citi Item 7A was corrected from a 98-char TOC index row to 146k chars of real `MARKET RISK` content.
 
-**Expanded held-out manifest** (optional, `cache_optional: true` until HTML cached): MSFT FY2020 (longitudinal), Realty Income REIT, AAPL 2010 pre-iXBRL.
+**Expanded held-out manifest** (11 entries; optional filings run when cached — see `scripts/cache_heldout_filings.py`). Manual spot-checks: `docs/eval_spot_checks.md`.
+
+### Variant coverage matrix (Phase 2 — measured)
+
+Last run: `scripts/run_heldout_baseline.py` → `reports/heldout_baseline.json` (Tier0, 8 filings cached).
+
+| Variant axis | Filing | Required | failure_category | Notes |
+|--------------|--------|----------|------------------|-------|
+| Standard iXBRL | MSFT (train) | 4/4 | ok | train KPI |
+| Cross-reference index | INTC (train) | 4/4 | ok | cross-ref OK |
+| Bank mega-TOC | Citi (train) | 3/3 | ok | train KPI |
+| Second bank TOC | JPM | 2/4 | toc_stub_required_item | Citi heuristics partial; documented gap |
+| K-1-style TOC | BRK.B | 4/4 | ok | held-out pass |
+| pre-iXBRL HTML | AAPL 2010 | 2/4 | missing_item_header | expected Tier0 gap |
+| Longitudinal drift | MSFT FY2020 | 4/4 | ok | same issuer, older format |
+| REIT structure | O | 4/4 | ok | Item 2/7 prose |
+| Mining / Item 4 | NEM | 4/4 | ok | Mine Safety path |
+| Compact issuer | GROW | 4/4 | ok | smaller filer |
+| 10-K/A amendment | KSCP | 0/4 | missing_item_header | Part III-only amendment (expected) |
+
+**Held-out Tier0 summary:** 5/8 `failure_category=ok`, 5/8 strict required pass (no toc_stub on required items).
 
 ---
 
