@@ -23,6 +23,7 @@ from shared_harness.edgar_client import (
 from shared_harness.schemas.sec_schema import FilingExtraction, ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
+from task2_sec.pipeline.segment import is_page_reference_text
 
 _MANIFEST = Path(__file__).resolve().parent.parent / "task2_sec" / "eval" / "manifest.json"
 _PART_ORDER = ["I", "II", "III", "IV"]
@@ -245,7 +246,7 @@ def _render_item(
     title = f"Item {item.item_id}" + (f" — {name}" if name else "")
 
     if item.status == ItemStatus.EXTRACTED and item.text:
-        is_page_ref = _is_page_reference_only(item.text)
+        is_page_ref = is_page_reference_text(item.text)
         suffix = "（交叉引用）" if is_page_ref else ""
         with st.expander(f"{icon} {title}{suffix}", expanded=False):
             col_badge, col_len = st.columns([2, 1])
@@ -257,7 +258,8 @@ def _render_item(
 
             if is_page_ref:
                 st.info(
-                    "📄 此項目為頁碼交叉引用，完整內容位於 PDF 附件中。"
+                    "📄 此項目為頁碼交叉引用索引（內容散見於報表其他頁）。"
+                    "請使用上方連結開啟官方原文查看完整內容。"
                 )
 
             viewer_url, document_url = _sec_item_links(
@@ -284,7 +286,12 @@ def _render_item(
                     unsafe_allow_html=True,
                 )
             with tab_html:
-                if item.html_snippet:
+                if is_page_ref:
+                    st.info(
+                        "此項目為交叉引用索引，無對應的內文 HTML 片段。"
+                        "請使用上方「在 SEC 查看」開啟官方原文。"
+                    )
+                elif item.html_snippet:
                     st.caption("保留原始表格與排版（來自 EDGAR HTML 片段）")
                     _render_html_snippet_viewer(
                         item.html_snippet,
@@ -364,21 +371,6 @@ def _render_item(
             f'{icon} <strong>{title}</strong> — {item.status.value}</div>',
             unsafe_allow_html=True,
         )
-
-
-def _is_page_reference_only(text: str) -> bool:
-    """Detect if extracted text is just a TOC page reference (e.g. 'Pages 3-4, 13')."""
-    import re
-    clean = text.strip()
-    if len(clean) < 200:
-        # Short text that's mostly page numbers
-        page_refs = re.findall(r"(?:Pages?|pp?\.?)\s*[\d\-–,\s]+", clean, re.IGNORECASE)
-        non_ref = re.sub(r"(?:Pages?|pp?\.?)\s*[\d\-–,\s]+", "", clean, flags=re.IGNORECASE)
-        non_ref = re.sub(r"Item\s+\d+[A-Z]?\.?", "", non_ref).strip()
-        non_ref = re.sub(r"[:\n\r\s]+", "", non_ref)
-        if page_refs and len(non_ref) < 80:
-            return True
-    return False
 
 
 def _format_sec_text(text: str) -> str:

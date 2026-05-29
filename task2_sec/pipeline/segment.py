@@ -69,6 +69,33 @@ def _is_page_reference_only(text: str) -> bool:
     return len(content) < 80
 
 
+def is_page_reference_text(text: str) -> bool:
+    """Presentation helper: is an extracted item really a cross-reference index?
+
+    Some filings (e.g. cross-reference-format 10-Ks) map each SEC Item to page
+    numbers in an index table — e.g. "Item 1. Business: ... Pages 3-4, 13 ...".
+    Such an entry is short and dominated by page citations even when it carries
+    a few topic labels (so the stricter ``_is_page_reference_only`` misses it).
+
+    Signals (no filing-specific strings, so this generalizes):
+      - short text (< 500 chars) AND
+      - contains page citations, AND
+      - either the non-citation residual is tiny, or there are >= 2 citations.
+
+    Genuine short items such as "None" / "Not applicable" carry no page
+    citations and are therefore never flagged.
+    """
+    clean = text.strip()
+    if not clean or len(clean) >= 500:
+        return False
+    page_refs = _PAGE_REF_RE.findall(clean)
+    if not page_refs:
+        return False
+    if _is_page_reference_only(clean):
+        return True
+    return len(page_refs) >= 2
+
+
 class SegmentMethod(str, Enum):
     TOC = "toc"
     REGEX = "regex"
