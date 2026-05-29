@@ -1,5 +1,15 @@
 # Submission Checklist
 
+## Reviewer Quick Start
+
+1. **SEC 10K → 基準集（Train · 3）** — MSFT extract → Item tree + quality badges  
+2. **SEC 10K → 泛化驗證（Held-out · 8）** — JPM (expected partial fail) or BRK.B (pass)  
+3. **SEC 10K → 自訂報表** — paste any accession for unseen filing test  
+4. **Eval → 基準評估 Train** — click「載入存檔結果」  
+5. **Eval → Held-out 基線** — read `heldout_baseline.json` table (5/8 ok)
+
+> Manifest has **11 filings** (3 train + 8 held-out). Train-only dropdown is intentional eval discipline.
+
 ## URLs (for Whaleforce email)
 
 | Item | URL |
@@ -26,10 +36,13 @@
 ### Zeabur smoke (after push → auto redeploy)
 - [ ] **Browser Agent**: preset "Navigate to Example.com" → Run → Refresh → `success` + **Result** block
 - [ ] **Browser Agent**: preset "Hacker News" → verify multi-step + extracted title
-- [ ] **SEC 10K**: MSFT from manifest → Extract → Item tree + 結構化文字閱讀視圖
-- [ ] **SEC 10K**: Citi → Items 10–14 show `incorporated_by_reference`
+- [ ] **SEC 10K → 基準集**: MSFT → Extract → Item tree + 結構化文字閱讀視圖
+- [ ] **SEC 10K → 基準集**: Citi → Items 10–14 show `incorporated_by_reference`
+- [ ] **SEC 10K → 泛化驗證**: JPM → badge shows partial-fail expectation; extract runs
 - [ ] **SEC 10K**: JSON/Markdown 下載（metrics 下方，應即時無長等待）
-- [ ] **Eval**: 即時紀錄 tab 可見 Agent + SEC runs；基準 tab 正常
+- [ ] **Eval → 基準 Train**: 載入存檔結果正常
+- [ ] **Eval → Held-out 基線**: table shows 5/8 ok
+- [ ] **Eval**: 即時紀錄 tab 可見 Agent + SEC runs
 
 ### GitHub
 - [x] Push latest commits: `git push origin master`
@@ -41,7 +54,7 @@ Include:
 1. Public Git URL
 2. Frontend URL (Zeabur base — both tasks on same deployment)
 3. Env notes: reviewers need their own `GEMINI_API_KEY` + `SEC_USER_AGENT`; `OPENROUTER_API_KEY` optional but improves agent search tasks
-4. Pointer to `docs/analysis.md`, `prompts/ITERATION.md`, and `prompts/README.md`
+4. Pointer to `docs/analysis.md`, `prompts/ITERATION.md`, `prompts/README.md`, and **Reviewer Quick Start** (top of this file)
 
 ## Environment variables (Zeabur)
 

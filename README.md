@@ -15,6 +15,7 @@
 - [核心理念：把模型當成不穩定的引擎](#核心理念把模型當成不穩定的引擎)
 - [快速開始](#快速開始)
 - [線上 Demo 與部署](#線上-demo-與部署)
+- [評審快速導覽](#評審快速導覽reviewer-quick-start)
 - [專案結構](#專案結構)
 - [任務一：瀏覽器代理](#任務一瀏覽器代理)
 - [任務二：SEC 10-K 抽取](#任務二sec-10-k-抽取)
@@ -77,11 +78,27 @@ streamlit run streamlit_app.py    # 啟動多頁 Web 介面
 | 頁面 | 對應內容 | 入口 |
 |---|---|---|
 | 首頁 Home | 總覽與架構說明 | `/` |
-| SEC 10-K 抽取 | 任務二 | 側邊欄 → SEC 10-K |
+| SEC 10-K 抽取 | 任務二（基準集 / 泛化驗證 / 自訂） | 側邊欄 → SEC 10-K |
 | 瀏覽器代理 | 任務一 | 側邊欄 → Browser Agent |
-| 評估儀表板 | KPI + CSV + 即時紀錄 | 側邊欄 → Eval |
+| 評估儀表板 | Train KPI + Held-out 基線 + 即時紀錄 | 側邊欄 → Eval |
 
 部署關鍵環境變數見下方 [設定與環境變數](#設定與環境變數)。
+
+---
+
+## 評審快速導覽（Reviewer Quick Start）
+
+> UI 預設 **3 檔 train** 是 eval 紀律設計（非功能缺失）；manifest 共 **11 檔**（3 train + 8 held-out）。
+
+| 步驟 | 去哪裡 | 看什麼 |
+|------|--------|--------|
+| 1 | **SEC 10K → 基準集（Train · 3）** | 選 MSFT → 抽取 → Item 樹 + quality badge + 結構化閱讀 |
+| 2 | **SEC 10K → 泛化驗證（Held-out · 8）** | 選 JPM → 看 `toc_stub` 已知失敗如何呈現；或 BRK.B 看通過案例 |
+| 3 | **SEC 10K → 自訂報表** | 貼任意 accession 做 unseen filing 驗證（需 `SEC_USER_AGENT`） |
+| 4 | **Eval → 基準評估 Train** | 按「載入存檔結果」→ SEC 3/3 + Agent 5/5 KPI |
+| 5 | **Eval → Held-out 基線** | `heldout_baseline.json` 表格：5/8 ok，JPM/AAPL/KSCP 誠實 gap |
+
+深入分析：[docs/analysis.md](docs/analysis.md) · 迭代紀錄：[prompts/ITERATION.md](prompts/ITERATION.md)
 
 ---
 
@@ -92,7 +109,7 @@ whaleforce-coding-test/
 ├── streamlit_app.py        # 入口：載入 .env、註冊 4 個頁面、側邊欄環境檢查
 ├── pages/                  # Streamlit 頁面
 │   ├── 0_Home.py           #   總覽 / 架構圖 / 技術棧
-│   ├── 1_SEC_10K.py        #   任務二 UI：抽取 + 結果展示 + 下載
+│   ├── 1_SEC_10K.py        #   任務二 UI：基準集 / 泛化驗證 / 自訂抽取
 │   ├── 2_Browser_Agent.py  #   任務一 UI：任務輸入 + 即時步驟時間軸
 │   └── 3_Eval.py           #   評估儀表板
 ├── task1_agent/            # 任務一：瀏覽器代理
@@ -117,7 +134,7 @@ whaleforce-coding-test/
 │   │   ├── html_snippet.py #   每段原始 HTML 片段（目前未接入 UI，見 Future Work）
 │   │   └── run.py          #   端到端串接
 │   └── eval/
-│       ├── manifest.json   #   4 份 filing（MSFT/INTC/Citi train + BRK.B heldout）
+│       ├── manifest.json   #   11 份 filing（3 train + 8 held-out）
 │       ├── gold/           #   train 的 gold 邊界標註
 │       └── cache/          #   離線 CI 用的 EDGAR HTML 快取
 ├── shared_harness/         # 跨任務共用基礎設施（見下表）
@@ -204,6 +221,16 @@ whaleforce-coding-test/
 
 10-K 是美國上市公司的年度報告，法定結構為 Part I–IV 下的 Item 1～16（如 Item 1 業務、Item 1A 風險因素、Item 7 MD&A、Item 8 財務報表等）。本管線從原始 HTML 中把每個 Item 精確切分出來，並保證 **零幻覺**：輸出文字必須是原文的子字串。
 
+### 前端呈現（SEC 10-K 頁）
+
+| 分頁 | 內容 | 用途 |
+|------|------|------|
+| **基準集（Train · 3）** | MSFT / INTC / Citi | 開發 KPI；Eval train 基準 |
+| **泛化驗證（Held-out · 8）** | BRK.B、JPM、AAPL 2010… | 不在 train 內；每筆顯示基線預期 badge |
+| **自訂報表** | EDGAR 搜尋或 accession | 評審 unseen filing 現場驗證 |
+
+Held-out 分頁的 badge 來自 `reports/heldout_baseline.json`；**JPM / AAPL / KSCP 等失敗為已知邊界**，非 silent failure。
+
 ### 管線流程（`task2_sec/pipeline/run.py`）
 
 ```
@@ -274,7 +301,7 @@ whaleforce-coding-test/
   - `heldout_snapshot.json`：BRK.B heldout 快照（**不用於調參**）。
   - `baseline_comparison.json`：regex-only vs 樸素 LLM vs 混合方案的對比。
 
-評估頁（Eval）支援「📂 載入存檔結果」（瞬間顯示已提交基線）與「重跑」兩種方式。
+評估頁（Eval）支援「📂 載入存檔結果」（瞬間顯示已提交基準）與「重跑 train 基準」；**Held-out SEC 基線**在「🔬 Held-out 基線」分頁唯讀展示 `heldout_baseline.json`。
 
 ---
 

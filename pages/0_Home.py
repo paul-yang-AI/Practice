@@ -111,7 +111,7 @@ st.markdown(
 st.markdown(
     '<div class="design-card">'
     "<h4>4. 泛化而非過擬合</h4>"
-    "<p>開發只用 4 份 train filing 和 6 個 agent task 做 sanity check。"
+    "<p>開發用 **3 份 train filing** + **8 份 held-out**（SEC 頁「泛化驗證」分頁）與 6 個 agent task 做 sanity check。"
     "管線不含任何 filing-specific hardcode（如 CIK 白名單、公司名特判）。"
     "EDGAR API 搜尋 + CIK 自動解析，讓使用者可以自由輸入任意 10-K accession。</p>"
     "</div>",

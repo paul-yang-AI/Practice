@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 
 from shared_harness import job_store
-from shared_harness.sec_ui import sec_result_matches_context
+from shared_harness.sec_ui import heldout_outcome_badge, sec_result_matches_context
 from shared_harness.edgar_client import (
     build_sec_viewer_url,
     find_proxy_filing,
@@ -25,7 +25,9 @@ from task2_sec.pipeline.content_quality import assess_required_item, is_likely_t
 from task2_sec.pipeline.segment import is_page_reference_text
 from task2_sec.pipeline.segment_classify import SegmentClass, classify_segment_text
 
-_MANIFEST = Path(__file__).resolve().parent.parent / "task2_sec" / "eval" / "manifest.json"
+_ROOT = Path(__file__).resolve().parent.parent
+_MANIFEST = _ROOT / "task2_sec" / "eval" / "manifest.json"
+_HELDOUT_BASELINE = _ROOT / "reports" / "heldout_baseline.json"
 _PART_ORDER = ["I", "II", "III", "IV"]
 
 _ITEM_NAMES = {
@@ -54,9 +56,103 @@ _ITEM_NAMES = {
 }
 
 
-def _load_manifest() -> list[dict]:
+def _load_manifest_split(split: str) -> list[dict]:
     data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
-    return [f for f in data["filings"] if f.get("split", "train") == "train"]
+    return [f for f in data["filings"] if f.get("split", "train") == split]
+
+
+def _load_manifest() -> list[dict]:
+    return _load_manifest_split("train")
+
+
+def _load_heldout_baseline_by_accession() -> dict[str, dict]:
+    if not _HELDOUT_BASELINE.exists():
+        return {}
+    try:
+        payload = json.loads(_HELDOUT_BASELINE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return {row["accession"]: row for row in payload.get("tier0", []) if row.get("accession")}
+
+
+def _heldout_filing_label(filing: dict, baseline: dict[str, dict]) -> str:
+    row = baseline.get(filing["accession"])
+    if row:
+        emoji, label = heldout_outcome_badge(
+            failure_category=str(row.get("failure_category", "")),
+            required_found=int(row.get("required_items_found", 0)),
+            required_total=int(row.get("required_items_total", 4)),
+        )
+        badge = f"{emoji} {label}"
+    else:
+        badge = "🔬 未跑基線"
+    stress = filing.get("label", "")
+    notes = (filing.get("notes") or "").strip()
+    note_suffix = f" — {notes[:60]}…" if notes and len(notes) > 60 else (f" — {notes}" if notes else "")
+    return f"{filing['ticker']} — {filing['accession']} ({stress}) · {badge}{note_suffix}"
+
+
+def _render_manifest_filing_tab(
+    *,
+    filings: list[dict],
+    source: str,
+    intro: str,
+    key_prefix: str,
+    show_baseline_hint: bool = False,
+) -> None:
+    st.markdown(intro)
+    if show_baseline_hint:
+        baseline = _load_heldout_baseline_by_accession()
+        summary_path = _HELDOUT_BASELINE
+        if summary_path.exists():
+            try:
+                payload = json.loads(summary_path.read_text(encoding="utf-8"))
+                s = payload.get("summary", {})
+                st.caption(
+                    f"離線 Tier0 基線（`reports/heldout_baseline.json`）："
+                    f"**{s.get('tier0_ok', '?')}/{s.get('tier0_filings', '?')}** ok · "
+                    f"**{s.get('tier0_required_pass', '?')}/{s.get('tier0_filings', '?')}** strict required。"
+                    "不在 train KPI 內。"
+                )
+            except Exception:
+                st.caption("基線報告：`reports/heldout_baseline.json`（詳見 Eval 頁 Held-out 分頁）。")
+        labels = [_heldout_filing_label(f, baseline) for f in filings]
+    else:
+        labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
+
+    if not filings:
+        st.info("manifest 中尚無此 split 的報表。")
+        return
+
+    choice = st.selectbox("選擇報表", labels, index=0, key=f"{key_prefix}_select")
+    selected = filings[labels.index(choice)]
+    if show_baseline_hint:
+        row = _load_heldout_baseline_by_accession().get(selected["accession"])
+        if row:
+            emoji, blabel = heldout_outcome_badge(
+                failure_category=str(row.get("failure_category", "")),
+                required_found=int(row.get("required_items_found", 0)),
+                required_total=int(row.get("required_items_total", 4)),
+            )
+            st.info(f"{emoji} **基線預期**：{blabel}。線上抽取結果可能因 EDGAR 即時抓取而略有差異。")
+        elif selected.get("notes"):
+            st.info(selected["notes"])
+
+    if st.button(
+        "🚀 開始抽取",
+        type="primary",
+        use_container_width=True,
+        key=f"run_{key_prefix}",
+    ):
+        _execute_sec_extraction(
+            accession=selected["accession"],
+            filing_url=selected.get("url"),
+            ticker=selected.get("ticker"),
+            cik=selected.get("cik"),
+            source=source,
+            label=f"{selected.get('ticker', 'SEC')} 10-K",
+        )
+    _maybe_render_sec_results(source=source, accession=selected["accession"])
 
 
 def _status_color(status: ItemStatus) -> str:
@@ -584,27 +680,38 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "混合管線：Tier0（BS4 + 正則分段）→ 跨度完整性驗證 → "
-    "LLM 仲裁（低信心段落自動調整邊界）"
+    "混合管線：Tier0（BS4 + 正則分段）→ 跨度完整性驗證 → LLM 仲裁（低信心邊界）。"
+    " **基準集（3）**：train KPI 用；**泛化集（8）**：held-out 診斷（部分預期失敗）；"
+    "**自訂報表**：任意 accession 現場驗證。"
 )
 
-tab_manifest, tab_custom = st.tabs(["📋 已註冊報表", "🔗 自訂報表"])
+tab_train, tab_heldout, tab_custom = st.tabs(
+    ["📋 基準集（Train · 3）", "🔬 泛化驗證（Held-out · 8）", "🔗 自訂報表"]
+)
 
-with tab_manifest:
-    filings = _load_manifest()
-    labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
-    choice = st.selectbox("選擇報表", labels, index=0)
-    selected = filings[labels.index(choice)]
-    if st.button("🚀 開始抽取", type="primary", use_container_width=True, key="run_manifest"):
-        _execute_sec_extraction(
-            accession=selected["accession"],
-            filing_url=selected.get("url"),
-            ticker=selected.get("ticker"),
-            cik=selected.get("cik"),
-            source="manifest",
-            label=f"{selected.get('ticker', 'SEC')} 10-K",
-        )
-    _maybe_render_sec_results(source="manifest", accession=selected["accession"])
+with tab_train:
+    _render_manifest_filing_tab(
+        filings=_load_manifest(),
+        source="manifest",
+        key_prefix="train",
+        intro=(
+            "**Train split** — 結構變異最小充分集（MSFT / INTC / Citi），"
+            "用於開發 KPI 與 Eval 基準；**刻意不含 held-out**，避免調參污染。"
+        ),
+    )
+
+with tab_heldout:
+    _render_manifest_filing_tab(
+        filings=_load_manifest_split("heldout"),
+        source="heldout",
+        key_prefix="heldout",
+        show_baseline_hint=True,
+        intro=(
+            "**Held-out split** — 泛化驗證集（8 檔），不在 train KPI 內。"
+            "徽章來自 `reports/heldout_baseline.json`；"
+            "JPM / AAPL 2010 / KSCP 等為**已知邊界**，非 silent failure。"
+        ),
+    )
 
 with tab_custom:
     st.markdown(

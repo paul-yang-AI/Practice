@@ -1,4 +1,4 @@
-"""評估儀表板 — 基準評估（train split）、已知限制、即時執行紀錄。"""
+"""評估儀表板 — train 基準、held-out 基線、已知限制、即時執行紀錄。"""
 
 from __future__ import annotations
 
@@ -140,6 +140,65 @@ def _render_agent_cards(df: pd.DataFrame) -> None:
             st.caption(f"結果：{preview}{'…' if len(preview) >= 100 else ''}")
 
 
+def _render_heldout_baseline() -> None:
+    baseline_path = _REPORTS / "heldout_baseline.json"
+    st.markdown(
+        "SEC manifest **held-out split**（8 檔，Tier0 離線基線）。"
+        "不在 train KPI 內；部分案例**預期失敗**。線上可於 **SEC 10K → 泛化驗證** 分頁一鍵抽取。"
+    )
+    if not baseline_path.exists():
+        st.warning(
+            "找不到 `reports/heldout_baseline.json`。"
+            "本地執行：`python scripts/cache_heldout_filings.py` 後 "
+            "`python scripts/run_heldout_baseline.py`。"
+        )
+        return
+    try:
+        payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        st.error(f"無法讀取 held-out 基線：{exc}")
+        return
+
+    summary = payload.get("summary", {})
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tier0 檔數", summary.get("tier0_filings", "—"))
+    c2.metric("failure_category=ok", summary.get("tier0_ok", "—"))
+    c3.metric("Strict required 通過", summary.get("tier0_required_pass", "—"))
+
+    rows = []
+    for row in payload.get("tier0", []):
+        cat = row.get("failure_category", "")
+        req = f"{row.get('required_items_found', 0)}/{row.get('required_items_total', 4)}"
+        if cat == "ok":
+            status = "✅ 預期通過"
+        elif cat == "toc_stub_required_item":
+            status = "⚠️ 已知部分失敗"
+        elif cat == "missing_item_header":
+            status = "❌ 預期失敗"
+        else:
+            status = f"⚠️ {cat}"
+        rows.append(
+            {
+                "Ticker": row.get("ticker", ""),
+                "Accession": row.get("accession", ""),
+                "Required": req,
+                "failure_category": cat,
+                "狀態": status,
+                "toc_stub": row.get("toc_stub_count", 0),
+                "coverage": row.get("char_coverage", ""),
+            }
+        )
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.caption(
+        "完整變異軸與方法論限制見 README Eval Set 章節與 docs/analysis.md。"
+        "Agent held-out（如 DuckDuckGo）見下方「已知限制」。"
+    )
+    with st.expander("📋 heldout_baseline.json（原始）"):
+        st.json(payload)
+
+
 def _render_live_runs() -> None:
     st.markdown(
         "此區顯示 **瀏覽器代理** 與 **SEC 自訂抽取** 的即時執行紀錄（SQLite），"
@@ -234,8 +293,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "**基準評估（Train Split）**：可重現的 evaluation set，供回歸測試與對外報告。"
-    " **即時紀錄**：使用者自訂任務的可觀測性，非 benchmark KPI。"
+    "**基準評估（Train Split）**：可重現 KPI，供回歸與 submission。"
+    " **Held-out 基線**：SEC 泛化驗證（見第二分頁）。"
+    " **即時紀錄**：使用者自訂任務，非 benchmark KPI。"
 )
 
 col_load, col_run_sec, col_run_agent = st.columns(3)
@@ -285,8 +345,8 @@ if run_agent:
 
 st.divider()
 
-tab_bench, tab_limits, tab_live = st.tabs(
-    ["📈 基準評估 Train", "⚠️ 已知限制", "🔴 即時執行紀錄"]
+tab_bench, tab_heldout, tab_limits, tab_live = st.tabs(
+    ["📈 基準評估 Train", "🔬 Held-out 基線", "⚠️ 已知限制", "🔴 即時執行紀錄"]
 )
 
 summary = st.session_state.get("eval_summary")
@@ -299,8 +359,8 @@ with tab_bench:
         st.markdown(kpi_row_html(summary), unsafe_allow_html=True)
 
         st.caption(
-            "Held-out 任務（如 DuckDuckGo、BRK.B）不在此 KPI 內；"
-            "詳見「已知限制」與 docs/analysis.md。"
+            "Held-out SEC 基線見「🔬 Held-out 基線」分頁；"
+            "Agent held-out（如 DuckDuckGo）不在此 KPI 內。"
         )
 
         if df is None or df.empty:
@@ -328,6 +388,9 @@ with tab_bench:
             with st.expander("📋 eval_summary.json"):
                 st.json(summary)
 
+with tab_heldout:
+    _render_heldout_baseline()
+
 with tab_limits:
     st.markdown("""
 ### 設計說明
@@ -335,8 +398,9 @@ with tab_limits:
 | 類型 | 用途 | 資料來源 |
 |------|------|----------|
 | **基準評估** | 可重現 KPI、submission 報告 | `tasks.yaml` / `manifest.json` train split |
+| **Held-out 基線** | SEC 泛化驗證（誠實失敗） | `reports/heldout_baseline.json` + SEC「泛化驗證」分頁 |
 | **即時紀錄** | 使用者自訂任務除錯 | SQLite `job_store`（Agent + SEC 抽取頁） |
-| **Held-out** | 使用者自行驗證 generalization | 不在 train KPI 內 |
+| **Held-out（Agent）** | 使用者自行驗證 generalization | 如 DuckDuckGo — 不在 train KPI 內 |
 
 ### Browser Agent — 穩定 / 不穩定
 
@@ -353,8 +417,11 @@ with tab_limits:
 
 | 狀態 | 範例 |
 |------|------|
-| ✅ 良好 | MSFT、INTC（標準 TOC） |
-| ⚠️ 困難 | Citi（大量 incorporated by reference）、iXBRL 複雜 |
+| ✅ Train 良好 | MSFT、INTC、Citi（基準集分頁） |
+| ✅ Held-out 通過 | BRK.B、O、NEM、GROW、MSFT FY2020 |
+| ⚠️ Held-out 已知 gap | JPM 2/4；AAPL 2010 2/4 |
+| ❌ Held-out 預期失敗 | KSCP 10-K/A 0/4 |
+| ⚠️ 困難 | incorporated by reference、iXBRL 複雜 |
 | 🔍 搜尋 | 建議 **ticker**（GOOGL）或 accession；`google` 等單字易 EFTS 雜訊 |
 | 📊 展示 | 結構化文字閱讀視圖；SEC viewer deep link（原文連結） |
 | 🚫 未支援 | PDF-only 報表、非英文 20-F |

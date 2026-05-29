@@ -336,3 +336,13 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   2. Prompt versioned as `prompts/v1_sec_segment_classify.txt` (loaded via `prompt_loader`).
   3. Train KPI path remains Tier0-only; LLM classify opt-in for UI / `--with-llm` eval.
 - **Validation**: `test_prompt_loader_sec_segment_classify_template`; train eval $0/filing unchanged.
+
+### `sec_eval_ui_presentation` (2026-05-29)
+
+- **Failed path**: Manifest expanded to 11 filings but SEC UI only showed 3 train entries — reviewers on Zeabur could not discover held-out eval depth or honest failure cases without reading README.
+- **Resolution**:
+  1. SEC 10-K page: three tabs — **基準集（Train · 3）** / **泛化驗證（Held-out · 8）** / **自訂報表**; held-out rows show baseline outcome badges from `heldout_baseline.json`.
+  2. Eval page: new **Held-out 基線** tab with summary metrics + filing table.
+  3. `shared_harness/sec_ui.py`: `heldout_outcome_badge()` for testable badge labels.
+  4. README Reviewer Quick Start, SUBMISSION smoke checklist, Home copy updated.
+- **Validation**: `tests/unit/test_sec_ui.py` (heldout tab context + badges); train tab still filters `split=train` only.

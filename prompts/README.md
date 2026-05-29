@@ -29,4 +29,4 @@ Legacy: `v2_boundary_arbiter.txt` — kept in sync with `sops/boundary_arbiter.m
 
 ## Iteration log
 
-See [ITERATION.md](ITERATION.md) for v1→v2 changes, eval honesty (P0), held-out expansion, and known gaps (JPM, AAPL 2010, KSCP 10-K/A).
+See [ITERATION.md](ITERATION.md) for v1→v2 changes, eval honesty (P0), held-out expansion, UI presentation (`sec_eval_ui_presentation`), and known gaps (JPM, AAPL 2010, KSCP 10-K/A).

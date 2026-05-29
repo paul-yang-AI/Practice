@@ -132,6 +132,8 @@ Key observations:
 
 ## Held-Out Snapshot (not tuned)
 
+**Frontend**: SEC 10-K page → **泛化驗證（Held-out · 8）** tab (one-click extract + baseline badges); Eval page → **Held-out 基線** tab loads `reports/heldout_baseline.json`.
+
 From `reports/heldout_snapshot.json` (local run):
 
 | Ticker | Accession | required | extracted | failure |
