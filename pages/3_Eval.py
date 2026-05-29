@@ -54,16 +54,17 @@ def _load_persisted_eval() -> tuple[dict | None, pd.DataFrame | None]:
     return summary, df
 
 
-def _ensure_eval_session_state() -> None:
-    """Load persisted eval summary/CSV into session state."""
-    if "eval_summary" not in st.session_state:
-        summary, _ = _load_persisted_eval()
-        if summary:
-            st.session_state["eval_summary"] = summary
-    if st.session_state.get("eval_df") is None:
-        _, df = _load_persisted_eval()
-        if df is not None:
-            st.session_state["eval_df"] = df
+def _load_archived_eval() -> bool:
+    """Load persisted eval summary/CSV into session state on demand. Returns True if found."""
+    summary, df = _load_persisted_eval()
+    found = False
+    if summary:
+        st.session_state["eval_summary"] = summary
+        found = True
+    if df is not None:
+        st.session_state["eval_df"] = df
+        found = True
+    return found
 
 
 def _run_benchmark(*, include_agent: bool) -> None:
@@ -237,23 +238,34 @@ st.caption(
     " **即時紀錄**：使用者自訂任務的可觀測性，非 benchmark KPI。"
 )
 
-_ensure_eval_session_state()
-
-col_run_sec, col_run_agent = st.columns(2)
+col_load, col_run_sec, col_run_agent = st.columns(3)
+with col_load:
+    load_archived = st.button(
+        "📂 載入存檔結果",
+        type="primary",
+        use_container_width=True,
+        help="顯示已提交的 submission 基準結果（reports/，不重跑）",
+    )
 with col_run_sec:
     run_sec = st.button(
-        "📄 執行 SEC 基準（train）",
-        type="primary",
+        "📄 重跑 SEC 基準（train）",
+        type="secondary",
         use_container_width=True,
         help="manifest.json train 報表，約 1 分鐘",
     )
 with col_run_agent:
     run_agent = st.button(
-        "🤖 執行完整基準（SEC + Agent）",
+        "🤖 重跑完整基準（SEC + Agent）",
         type="secondary",
         use_container_width=True,
         help="含 Playwright + LLM，約 3–8 分鐘",
     )
+
+if load_archived:
+    if _load_archived_eval():
+        st.success("✅ 已載入存檔基準結果")
+    else:
+        st.warning("找不到 `reports/eval_summary.json`，請改按重跑。")
 
 if run_sec:
     with st.spinner("正在執行 SEC train 基準…"):
@@ -282,7 +294,7 @@ df = st.session_state.get("eval_df")
 
 with tab_bench:
     if not summary:
-        st.info("尚無基準結果。請按上方按鈕執行，或確認 `reports/eval_summary.json` 存在。")
+        st.info("尚無基準結果。請按上方「📂 載入存檔結果」顯示 submission 基準，或按「重跑」執行新一輪。")
     else:
         st.markdown(kpi_row_html(summary), unsafe_allow_html=True)
 

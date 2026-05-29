@@ -190,24 +190,19 @@ with st.expander("評估層級說明"):
 """)
 
 with st.expander("系統架構圖（文字版）"):
-    st.markdown(
-        """
-<pre style="margin:0;padding:0.85rem 1rem;background:#f8fafc;border:1px solid #e5e7eb;
-border-radius:8px;font-size:0.78rem;line-height:1.45;overflow-x:auto;font-family:Consolas,monospace;">
-┌──────────────────────────────────────────────────────────────┐
-│                 Streamlit 多頁面應用程式                        │
-├──────────────┬───────────────────┬────────────────────────────┤
-│  SEC 10-K    │  瀏覽器代理        │  評估儀表板                  │
-│  (頁面 1)    │  (頁面 2)         │  (頁面 3)                   │
-├──────────────┴───────────────────┴────────────────────────────┤
-│                    shared_harness/                              │
-│  llm_router · cost_tracker · job_store · edgar_client          │
-│  llm_parse · prompt_loader · schemas · eval_runner             │
-├──────────────────────────────────────────────────────────────┤
-│  LLM：Gemini Flash / Pro                                       │
-│  預算：$20 全域 · $0.50/代理執行 · 熔斷器                        │
-└──────────────────────────────────────────────────────────────┘
-</pre>
-""",
-        unsafe_allow_html=True,
+    st.code(
+        """Streamlit 多頁面應用程式
+├─ 頁面 1：SEC 10-K 抽取
+├─ 頁面 2：瀏覽器自動化代理
+└─ 頁面 3：評估儀表板
+        │
+        ▼
+shared_harness/
+├─ llm_router · cost_tracker · job_store · edgar_client
+└─ llm_parse · prompt_loader · schemas · eval_runner
+        │
+        ▼
+LLM：Gemini Flash / Pro
+預算：$20 全域 · $0.50/代理執行 · 熔斷器""",
+        language=None,
     )

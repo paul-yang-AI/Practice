@@ -175,7 +175,7 @@ def _render_html_snippet_viewer(
     anchor_js = json.dumps(anchor or "")
     safe_snippet = _prepare_snippet_for_iframe(html_snippet)
     components.html(
-        f"""<!DOCTYPE html>
+        f"""<!DOCTYPE html><!-- {component_key} -->
 <html><head><meta charset="utf-8"><style>
 body {{
   margin: 0; padding: 0; background: #fff;
@@ -215,7 +215,6 @@ td, th {{ padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; vertical-align: to
 </script></body></html>""",
         height=580,
         scrolling=False,
-        key=component_key,
     )
 
 
