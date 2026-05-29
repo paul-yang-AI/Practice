@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -156,6 +157,13 @@ def _render_quality_badge(item) -> None:
         st.caption("✓ 契約驗證通過（span integrity + token ratio）")
 
 
+def _prepare_snippet_for_iframe(html_snippet: str) -> str:
+    """Remove embedded scripts so iframe scroll JS cannot be broken by filing markup."""
+    text = re.sub(r"<script\b[^>]*>[\s\S]*?</script>", "", html_snippet, flags=re.I)
+    text = re.sub(r"<script\b[^>]*>", "", text, flags=re.I)
+    return text.replace("</script>", "")
+
+
 def _render_html_snippet_viewer(
     html_snippet: str,
     *,
@@ -164,7 +172,7 @@ def _render_html_snippet_viewer(
 ) -> None:
     """Render SEC HTML snippet in a scrollable viewer that jumps to the item anchor."""
     anchor_js = json.dumps(anchor or "")
-    safe_snippet = html_snippet.replace("</script>", "<\\/script>")
+    safe_snippet = _prepare_snippet_for_iframe(html_snippet)
     components.html(
         f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -177,7 +185,9 @@ body {{
   max-height: 560px; overflow: auto; padding: 0.75rem 1rem;
   border-left: 4px solid {border_color}; border-radius: 8px;
   border: 1px solid #e5e7eb; border-left-width: 4px;
+  scroll-behavior: auto;
 }}
+:target {{ scroll-margin-top: 12px; outline: none; }}
 table {{ width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }}
 td, th {{ padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; vertical-align: top; }}
 </style></head><body>

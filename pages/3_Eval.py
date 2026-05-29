@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from shared_harness import job_store
+from shared_harness.eval_ui import kpi_row_html
 
 _REPORTS = Path(__file__).resolve().parent.parent / "reports"
 
@@ -50,6 +52,18 @@ def _load_persisted_eval() -> tuple[dict | None, pd.DataFrame | None]:
         except Exception:
             pass
     return summary, df
+
+
+def _ensure_eval_session_state() -> None:
+    """Load persisted eval summary/CSV into session state."""
+    if "eval_summary" not in st.session_state:
+        summary, _ = _load_persisted_eval()
+        if summary:
+            st.session_state["eval_summary"] = summary
+    if st.session_state.get("eval_df") is None:
+        _, df = _load_persisted_eval()
+        if df is not None:
+            st.session_state["eval_df"] = df
 
 
 def _run_benchmark(*, include_agent: bool) -> None:
@@ -223,12 +237,7 @@ st.caption(
     " **即時紀錄**：使用者自訂任務的可觀測性，非 benchmark KPI。"
 )
 
-if "eval_summary" not in st.session_state or "eval_df" not in st.session_state:
-    _summary, _df = _load_persisted_eval()
-    if _summary:
-        st.session_state["eval_summary"] = _summary
-    if _df is not None:
-        st.session_state["eval_df"] = _df
+_ensure_eval_session_state()
 
 col_run_sec, col_run_agent = st.columns(2)
 with col_run_sec:
@@ -275,29 +284,19 @@ with tab_bench:
     if not summary:
         st.info("尚無基準結果。請按上方按鈕執行，或確認 `reports/eval_summary.json` 存在。")
     else:
-        sec_ok = summary.get("sec_ok", 0)
-        sec_total = summary.get("sec_filings", 0)
-        agent_total = summary.get("agent_tasks", 0)
-        agent_rate = summary.get("agent_success_rate", 0)
-        agent_ok = int(agent_rate * agent_total) if agent_rate <= 1 else int(agent_rate)
-
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("SEC 10-K", f"{sec_ok}/{sec_total}")
-        if agent_total:
-            k2.metric("Agent Train", f"{agent_ok}/{agent_total}")
-            k3.metric("P50 延遲", f"{summary.get('agent_latency_p50', 0):.1f}s")
-            k4.metric("P50 成本", f"${summary.get('agent_usd_p50', 0):.4f}")
-        else:
-            k2.metric("Agent Train", "—", help="執行完整基準以包含 Agent")
-            k3.metric("Silent failures", summary.get("agent_silent_failures", 0))
-            k4.metric("Recovery steps", summary.get("agent_recovery_total", 0))
+        st.markdown(kpi_row_html(summary), unsafe_allow_html=True)
 
         st.caption(
             "Held-out 任務（如 DuckDuckGo、BRK.B）不在此 KPI 內；"
-            "詳見「已知限制」與 `docs/analysis.md`。"
+            "詳見「已知限制」與 docs/analysis.md。"
         )
 
-        if df is not None and not df.empty:
+        if df is None or df.empty:
+            st.warning(
+                "基準摘要已載入，但找不到 `reports/eval_train.csv`。"
+                "請按上方按鈕重新執行基準，或確認部署包含 reports 目錄。"
+            )
+        elif df is not None and not df.empty:
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### 📄 SEC 10-K（train manifest）")
