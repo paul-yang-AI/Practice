@@ -316,6 +316,7 @@ class Segmenter:
         logger = logging.getLogger(__name__)
 
         try:
+            from shared_harness.cost_tracker import BudgetExceededError
             from shared_harness.llm_router import AllProvidersFailed, complete
             from shared_harness.prompt_loader import load_prompt
         except ImportError:
@@ -379,6 +380,12 @@ class Segmenter:
                             method=SegmentMethod.LLM,
                         )
                     )
+            except BudgetExceededError as exc:
+                # Per-filing LLM budget is exhausted; further chunks would only
+                # raise again before any network call. Stop scanning the rest of
+                # the (potentially very long) body instead of spinning to the end.
+                logger.warning("LLM segment fallback stopped at chunk %d: %s", chunk_start, exc)
+                break
             except (AllProvidersFailed, Exception) as exc:
                 logger.warning("LLM segment fallback failed for chunk %d: %s", chunk_start, exc)
                 continue

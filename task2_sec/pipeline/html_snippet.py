@@ -41,20 +41,24 @@ def attach_html_snippets(
     if not html.strip() or not segments:
         return
 
-    markers = _collect_header_markers(html, body)
-    if not markers:
-        return
+    # Parse the (potentially multi-MB) filing once and reuse the tree for both
+    # marker collection and per-item extraction. Re-parsing per item was the
+    # dominant local cost, especially for large iXBRL filings (e.g. INTC).
+    soup = BeautifulSoup(html, "lxml")
+    root = soup.body or soup
+
+    markers = _collect_header_markers(root, body)
 
     ordered = sorted(segments, key=lambda s: s.start)
     by_id = {item.item_id: item for item in items}
 
     for idx, seg in enumerate(ordered):
-        start = _best_marker(markers, seg)
-        if start is None:
-            continue
         next_seg = ordered[idx + 1] if idx + 1 < len(ordered) else None
-        end = _best_marker(markers, next_seg) if next_seg else None
-        snippet = _extract_between(html, body, start, end)
+        start = _best_marker(markers, seg) or _marker_from_body(body, seg)
+        end = None
+        if next_seg is not None:
+            end = _best_marker(markers, next_seg) or _marker_from_body(body, next_seg)
+        snippet = _extract_between(root, html, body, start, end)
         if not snippet:
             continue
         item = by_id.get(seg.item_id)
@@ -64,9 +68,24 @@ def attach_html_snippets(
         item.source_anchor = start.anchor_id
 
 
-def _collect_header_markers(html: str, body: str) -> list[_HeaderMarker]:
-    soup = BeautifulSoup(html, "lxml")
-    root = soup.body or soup
+def _marker_from_body(body: str, seg: SegmentResult) -> _HeaderMarker:
+    """Synthesize a header marker from the segment's body text.
+
+    Used when DOM/TOC marker discovery fails (e.g. Citi's incorporation-by-
+    reference filing) so extraction is still attempted instead of bailing.
+    """
+    segment_text = body[seg.start : seg.end]
+    first_line = segment_text.lstrip().split("\n", 1)[0].strip()
+    header_text = first_line[:120] if first_line else f"Item {seg.item_id}"
+    return _HeaderMarker(
+        item_id=seg.item_id,
+        anchor_id=None,
+        body_offset=seg.start,
+        header_text=header_text,
+    )
+
+
+def _collect_header_markers(root: Tag, body: str) -> list[_HeaderMarker]:
     markers: list[_HeaderMarker] = []
     seen: set[tuple[str, str]] = set()
 
@@ -188,13 +207,12 @@ def _find_marker_element(root: Tag, marker: _HeaderMarker) -> Tag | None:
 
 
 def _extract_between(
+    root: Tag,
     html: str,
     body: str,
     start: _HeaderMarker,
     end: _HeaderMarker | None,
 ) -> str | None:
-    soup = BeautifulSoup(html, "lxml")
-    root = soup.body or soup
     start_el = _find_marker_element(root, start)
     if start_el is None:
         return _extract_by_raw_html(html, body, start, end)
@@ -240,9 +258,11 @@ def _extract_by_raw_html(
     end: _HeaderMarker | None,
 ) -> str | None:
     start_line = start.header_text or f"Item {start.item_id}"
-    start_pos = _find_in_html(html, start_line)
-    if start_pos < 0:
-        start_pos = _find_in_html(html, f"Item {start.item_id}")
+    # Pick the content occurrence, not the first hit. In a 10-K the first
+    # textual match of an item header is the Table of Contents at the very top
+    # of the document; slicing from there yields front-matter instead of the
+    # actual section (the INTC iXBRL "stuck at the beginning" bug).
+    start_pos = _find_best_in_html(html, start_line, fallback=f"Item {start.item_id}")
     if start_pos < 0:
         return None
 
@@ -263,6 +283,50 @@ def _find_in_html(html: str, needle: str, start: int = 0) -> int:
         return -1
     chunk = needle[: min(48, len(needle))]
     return html.lower().find(chunk.lower(), start)
+
+
+def _find_all_in_html(html: str, needle: str) -> list[int]:
+    if not needle:
+        return []
+    chunk = needle[: min(48, len(needle))].lower()
+    if not chunk:
+        return []
+    hay = html.lower()
+    positions: list[int] = []
+    pos = 0
+    while True:
+        idx = hay.find(chunk, pos)
+        if idx < 0:
+            break
+        positions.append(idx)
+        pos = idx + 1
+    return positions
+
+
+def _find_best_in_html(html: str, needle: str, *, fallback: str | None = None) -> int:
+    positions = _find_all_in_html(html, needle)
+    if not positions and fallback:
+        positions = _find_all_in_html(html, fallback)
+    if not positions:
+        return -1
+    return _pick_best_html_pos(positions, len(html))
+
+
+def _pick_best_html_pos(positions: list[int], html_len: int) -> int:
+    """Prefer the first occurrence inside the content body, skipping the TOC.
+
+    Mirrors ``segment._pick_best_start``: the TOC sits in the first few percent
+    (and any back-matter index in the last few percent) of large documents.
+    """
+    if len(positions) == 1:
+        return positions[0]
+    if html_len > 20000:
+        lo = html_len * 8 // 100
+        hi = html_len - html_len * 5 // 100
+        content = [p for p in positions if lo < p < hi]
+        if content:
+            return content[0]
+    return positions[-1]
 
 
 def _sanitize_html_snippet(html: str) -> str:
