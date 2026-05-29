@@ -83,3 +83,4 @@ def test_run_eval_csv_at_least_three_rows(tmp_path: Path) -> None:
 
     for row in sec_rows:
         assert row["failure_category"] == "ok"
+        assert int(row.get("toc_stub_count") or 0) == 0

@@ -14,6 +14,7 @@ import yaml
 
 from shared_harness.cost_tracker import get_run_cost, get_run_llm_call_count
 from shared_harness.schemas.sec_schema import ItemStatus
+from task2_sec.pipeline.content_quality import assess_required_item
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.metrics import token_ratio
 from task2_sec.pipeline.run import extract_from_html
@@ -21,6 +22,7 @@ from task2_sec.pipeline.run import extract_from_html
 _EVAL_ROOT = Path(__file__).resolve().parent.parent / "task2_sec" / "eval"
 DEFAULT_MANIFEST = _EVAL_ROOT / "manifest.json"
 DEFAULT_GOLD_DIR = _EVAL_ROOT / "gold"
+DEFAULT_CACHE_DIR = _EVAL_ROOT / "cache"
 DEFAULT_TASKS = Path(__file__).resolve().parent.parent / "task1_agent" / "eval" / "tasks.yaml"
 
 EVAL_CSV_FIELDS = [
@@ -47,6 +49,8 @@ EVAL_CSV_FIELDS = [
     "incorporated_count",
     "missing_count",
     "low_confidence_count",
+    "toc_stub_count",
+    "required_quality_failures",
     "usd_per_run",
     "fallback_used",
     "failure_category",
@@ -72,6 +76,8 @@ class FilingEvalResult:
     incorporated_count: int = 0
     missing_count: int = 0
     low_confidence_count: int = 0
+    toc_stub_count: int = 0
+    required_quality_failures: int = 0
     usd_per_filing: float = 0.0
     fallback_used: bool = False
     failure_category: str = "ok"
@@ -102,6 +108,8 @@ class FilingEvalResult:
             "incorporated_count": self.incorporated_count,
             "missing_count": self.missing_count,
             "low_confidence_count": self.low_confidence_count,
+            "toc_stub_count": self.toc_stub_count,
+            "required_quality_failures": self.required_quality_failures,
             "usd_per_run": round(self.usd_per_filing, 6),
             "fallback_used": self.fallback_used,
             "failure_category": self.failure_category,
@@ -151,6 +159,8 @@ class AgentEvalResult:
             "incorporated_count": "",
             "missing_count": "",
             "low_confidence_count": "",
+            "toc_stub_count": "",
+            "required_quality_failures": "",
             "usd_per_run": round(self.usd_per_task, 6),
             "fallback_used": "",
             "failure_category": self.failure_category,
@@ -179,6 +189,12 @@ def _item_satisfied(status: ItemStatus) -> bool:
     }
 
 
+def _required_item_satisfied(item) -> bool:
+    """Strict required-item check: extracted TOC stubs do not count as found."""
+    quality = assess_required_item(item.item_id, item.text, item.status.value)
+    return quality in {"ok", "incorporated", "low_confidence", "cross_ref"}
+
+
 def _classify_failure(
     *,
     required_found: int,
@@ -187,7 +203,10 @@ def _classify_failure(
     gold_total: int,
     low_confidence_count: int,
     gold_errors: list[int],
+    toc_stub_count: int = 0,
 ) -> str:
+    if toc_stub_count > 0:
+        return "toc_stub_required_item"
     if required_found < required_total:
         return "missing_item_header"
     if gold_total and gold_matched < gold_total:
@@ -199,11 +218,17 @@ def _classify_failure(
     return "ok"
 
 
+def _filing_cache_exists(accession: str, cache_dir: Path | None = None) -> bool:
+    cache_path = (cache_dir or DEFAULT_CACHE_DIR) / f"{accession}.html"
+    return cache_path.exists()
+
+
 def evaluate_filing(
     filing: dict[str, Any],
     *,
     gold_dir: Path | None = None,
     use_arbiter: bool = False,
+    use_llm_fallback: bool = False,
     run_id: str | None = None,
     required_items: list[str] | None = None,
 ) -> FilingEvalResult:
@@ -216,13 +241,25 @@ def evaluate_filing(
         ticker=filing.get("ticker"),
         run_id=run_id,
         use_arbiter=use_arbiter,
+        use_llm_fallback=use_llm_fallback,
     )
 
     required = filing.get("required_items") or required_items or ["1", "1A", "7", "8"]
     by_id = {item.item_id: item for item in extraction.items}
     required_found = sum(
-        1 for item_id in required if item_id in by_id and _item_satisfied(by_id[item_id].status)
+        1 for item_id in required if item_id in by_id and _required_item_satisfied(by_id[item_id])
     )
+    toc_stub_count = 0
+    required_quality_failures = 0
+    for item_id in required:
+        item = by_id.get(item_id)
+        if item is None:
+            continue
+        quality = assess_required_item(item_id, item.text, item.status.value)
+        if quality == "toc_stub":
+            toc_stub_count += 1
+        if quality in {"toc_stub", "missing"}:
+            required_quality_failures += 1
 
     gold = _load_gold(accession, gold_dir)
     gold_items = (gold or {}).get("items", {})
@@ -281,8 +318,10 @@ def evaluate_filing(
         low_confidence_count=sum(
             1 for i in extraction.items if i.status == ItemStatus.LOW_CONFIDENCE
         ),
+        toc_stub_count=toc_stub_count,
+        required_quality_failures=required_quality_failures,
         usd_per_filing=0.0,
-        fallback_used=False,
+        fallback_used=use_llm_fallback or use_arbiter,
     )
     result.failure_category = _classify_failure(
         required_found=result.required_items_found,
@@ -291,6 +330,7 @@ def evaluate_filing(
         gold_total=result.gold_items_total,
         low_confidence_count=result.low_confidence_count,
         gold_errors=gold_errors,
+        toc_stub_count=toc_stub_count,
     )
     return result
 
@@ -300,15 +340,29 @@ def run_sec_eval(
     *,
     manifest_path: Path | None = None,
     gold_dir: Path | None = None,
+    cache_dir: Path | None = None,
     use_arbiter: bool = False,
+    use_llm_fallback: bool = False,
 ) -> list[FilingEvalResult]:
     manifest = load_manifest(manifest_path)
     required_items = manifest.get("required_items", ["1", "1A", "7", "8"])
     filings = [f for f in manifest["filings"] if f.get("split", "train") == split]
-    return [
-        evaluate_filing(f, gold_dir=gold_dir, use_arbiter=use_arbiter, required_items=required_items)
-        for f in filings
-    ]
+    results: list[FilingEvalResult] = []
+    for filing in filings:
+        if filing.get("cache_optional") and not _filing_cache_exists(
+            filing["accession"], cache_dir
+        ):
+            continue
+        results.append(
+            evaluate_filing(
+                filing,
+                gold_dir=gold_dir,
+                use_arbiter=use_arbiter,
+                use_llm_fallback=use_llm_fallback,
+                required_items=required_items,
+            )
+        )
+    return results
 
 
 def write_eval_csv(results: list[FilingEvalResult | AgentEvalResult], output_path: Path) -> Path:
@@ -454,10 +508,16 @@ def run_eval(
     output_dir: str = "reports",
     *,
     include_agent: bool = False,
+    use_arbiter: bool = False,
+    use_llm_fallback: bool = False,
 ) -> str:
     """Run eval harness and write CSV. Returns output file path."""
     results: list[FilingEvalResult | AgentEvalResult] = list(
-        run_sec_eval(split=split, use_arbiter=False)
+        run_sec_eval(
+            split=split,
+            use_arbiter=use_arbiter,
+            use_llm_fallback=use_llm_fallback,
+        )
     )
     if include_agent and split == "train":
         results.extend(run_agent_eval(split="train"))

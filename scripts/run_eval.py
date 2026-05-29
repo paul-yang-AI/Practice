@@ -36,10 +36,36 @@ def main() -> None:
         action="store_true",
         help="Write eval_summary.json alongside CSV",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--tier0-only",
+        action="store_true",
+        help="Tier0 only: no LLM segment fallback, no arbiter (default eval KPI path)",
+    )
+    mode.add_argument(
+        "--with-llm",
+        action="store_true",
+        help="Enable Tier1 LLM segment fallback (missing/coverage triggers)",
+    )
+    parser.add_argument(
+        "--with-arbiter",
+        action="store_true",
+        help="Enable Tier2 boundary arbiter on low-confidence segments",
+    )
     args = parser.parse_args()
 
+    use_llm_fallback = args.with_llm and not args.tier0_only
+    use_arbiter = args.with_arbiter
+    if not args.with_llm and not args.with_arbiter:
+        use_llm_fallback = False
+        use_arbiter = False
+
     if args.include_agent and args.split == "train":
-        sec_results = run_sec_eval(split="train", use_arbiter=False)
+        sec_results = run_sec_eval(
+            split="train",
+            use_arbiter=use_arbiter,
+            use_llm_fallback=use_llm_fallback,
+        )
         agent_results = run_agent_eval(split="train")
         results = [*sec_results, *agent_results]
         out_dir = Path(args.output)
@@ -48,9 +74,19 @@ def main() -> None:
         write_eval_csv(results, out_dir / "latest.csv")
         csv_path = str(csv_path)
     else:
-        csv_path = run_eval(split=args.split, output_dir=args.output, include_agent=False)
+        csv_path = run_eval(
+            split=args.split,
+            output_dir=args.output,
+            include_agent=False,
+            use_arbiter=use_arbiter,
+            use_llm_fallback=use_llm_fallback,
+        )
 
-    print(f"Wrote {csv_path} (split={args.split}, agent={args.include_agent})")
+    print(
+        f"Wrote {csv_path} (split={args.split}, agent={args.include_agent}, "
+        f"tier0_only={not use_llm_fallback and not use_arbiter}, "
+        f"llm={use_llm_fallback}, arbiter={use_arbiter})"
+    )
 
     if args.write_summary:
         from shared_harness.eval_runner import FilingEvalResult, AgentEvalResult
@@ -70,6 +106,7 @@ def main() -> None:
                             required_items_found=int(row["required_items_found"]),
                             required_items_total=int(row["required_items_total"]),
                             failure_category=row["failure_category"],
+                            toc_stub_count=int(row.get("toc_stub_count") or 0),
                         )
                     )
                 elif row["task"] == "agent":

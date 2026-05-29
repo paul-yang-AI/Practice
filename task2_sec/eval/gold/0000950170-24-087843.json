@@ -1,4 +1,12 @@
 {
+  "provenance": "pipeline_generated_tier0",
+  "generated_with": {
+    "use_llm_fallback": false,
+    "use_arbiter": false
+  },
+  "spot_checks": [
+    "Citi Item 7A: real MARKET RISK body, not TOC index row (manual verify)"
+  ],
   "items": {
     "1": {
       "status": "extracted",

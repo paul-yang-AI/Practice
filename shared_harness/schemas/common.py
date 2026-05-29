@@ -67,3 +67,14 @@ class PageExtraction(BaseModel):
         default="",
         description="Answer copied or derived only from visible page text.",
     )
+
+
+class SegmentClassDecision(BaseModel):
+    """Tier1 segment structure classifier output."""
+
+    klass: str = Field(
+        alias="class",
+        description="real_content | toc_index | cross_ref_only | incorporated",
+    )
+
+    model_config = {"populate_by_name": True}

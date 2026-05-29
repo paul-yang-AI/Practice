@@ -73,8 +73,28 @@ _ITEM_INDEX_LINE_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
-_SHORT_SEGMENT_CHARS = 300
+_SHORT_SEGMENT_CHARS = 300  # default; use _scale_short_segment_chars(body_len)
 _TOC_CLUSTER_GAP = 8000
+# Section titles that often appear in tables/TOC — require a unique content-zone match.
+_UNIQUE_CONTENT_ITEMS = frozenset({"7A", "8"})
+
+
+def _scale_short_segment_chars(body_len: int) -> int:
+    return max(200, min(500, body_len // 4000))
+
+
+def _scale_toc_cluster_gap(body_len: int) -> int:
+    return max(4000, min(12000, body_len // 120))
+
+
+def _scale_short_ratio_threshold(body_len: int) -> float:
+    return 0.35 if body_len > 400_000 else 0.40
+
+
+def _content_start_for_names(body_len: int, toc_zones: list[tuple[int, int]]) -> int:
+    if toc_zones and toc_zones[0][0] == 0:
+        return min(toc_zones[0][1], max(5000, body_len // 20))
+    return max(5000, body_len // 100)
 
 
 def _strip_page_citation_text(text: str) -> str:
@@ -98,7 +118,8 @@ def _find_toc_zones(body: str, *, min_lines: int = 3) -> list[tuple[int, int]]:
     cluster_size = 1
 
     for pos in index_positions[1:]:
-        if pos - prev < _TOC_CLUSTER_GAP:
+        gap = _scale_toc_cluster_gap(body_len)
+        if pos - prev < gap:
             cluster_size += 1
             prev = pos
             continue
@@ -169,18 +190,23 @@ def _coverage_metrics(merged: list[SegmentResult], body_len: int) -> tuple[float
     """Return (coverage_ratio, short_segment_ratio) for fallback decisions."""
     if not merged or body_len <= 0:
         return 0.0, 1.0
+    short_limit = _scale_short_segment_chars(body_len)
     if len(merged) >= 2:
         covered = sum(s.end - s.start for s in merged[:-1])
     else:
         covered = 0
     coverage_ratio = covered / body_len
-    short_ratio = sum(1 for s in merged if (s.end - s.start) < _SHORT_SEGMENT_CHARS) / len(merged)
+    short_ratio = sum(1 for s in merged if (s.end - s.start) < short_limit) / len(merged)
     return coverage_ratio, short_ratio
 
 
 def _needs_section_name_fallback(merged: list[SegmentResult], body_len: int) -> bool:
     coverage_ratio, short_ratio = _coverage_metrics(merged, body_len)
-    return len(merged) < 3 or coverage_ratio < 0.10 or short_ratio >= 0.35
+    return (
+        len(merged) < 3
+        or coverage_ratio < 0.10
+        or short_ratio >= _scale_short_ratio_threshold(body_len)
+    )
 
 
 def _scrub_toc_stub_segments(
@@ -195,10 +221,11 @@ def _scrub_toc_stub_segments(
     are kept so the UI can flag them as page-reference entries.
     """
     name_by_id = name_by_id or {}
+    short_limit = _scale_short_segment_chars(len(body))
     kept: list[SegmentResult] = []
     for seg in segments:
         text = body[seg.start : seg.end].strip()
-        if len(text) >= _SHORT_SEGMENT_CHARS or not is_page_reference_text(text):
+        if len(text) >= short_limit or not is_page_reference_text(text):
             kept.append(seg)
             continue
         alt = name_by_id.get(seg.item_id)
@@ -257,8 +284,19 @@ class Segmenter:
 
         found_ids = {s.item_id for s in merged}
         missing_count = sum(1 for iid in STANDARD_10K_ITEMS if iid not in found_ids)
-        coverage_ratio, _ = _coverage_metrics(merged, len(body))
-        needs_llm = use_llm_fallback and (missing_count > 5 or coverage_ratio < 0.30)
+        coverage_ratio, short_ratio = _coverage_metrics(merged, len(body))
+        short_limit = _scale_short_segment_chars(len(body))
+        toc_stub_count = sum(
+            1
+            for s in merged
+            if is_page_reference_text(body[s.start : s.end].strip())
+            and (s.end - s.start) < short_limit
+        )
+        needs_llm = use_llm_fallback and (
+            missing_count > 5
+            or coverage_ratio < 0.30
+            or (short_ratio >= _scale_short_ratio_threshold(len(body)) and toc_stub_count >= 2)
+        )
 
         if needs_llm:
             llm_hits = self._segment_from_llm(body, found_ids, run_id=run_id)
@@ -285,9 +323,10 @@ class Segmenter:
                 name_by_id[hit.item_id] = hit
 
         upgraded = False
+        short_limit = _scale_short_segment_chars(len(body))
         for i, seg in enumerate(segments):
             text = body[seg.start : seg.end].strip()
-            if len(text) >= _SHORT_SEGMENT_CHARS:
+            if len(text) >= short_limit:
                 continue
             alt = name_by_id.get(seg.item_id)
             if alt is None or alt.start <= seg.start:
@@ -414,10 +453,7 @@ class Segmenter:
     def _segment_from_section_names(self, body: str) -> list[SegmentResult]:
         """Fallback: detect sections by their standard 10-K section titles."""
         toc_zones = _find_toc_zones(body)
-        if toc_zones and toc_zones[0][0] == 0:
-            content_start = toc_zones[0][1]
-        else:
-            content_start = len(body) // 100
+        content_start = _content_start_for_names(len(body), toc_zones)
         hits: list[SegmentResult] = []
         for pattern_str, item_id in _SECTION_NAME_MAP:
             pattern = re.compile(pattern_str, re.IGNORECASE)
@@ -429,13 +465,28 @@ class Segmenter:
                 for m in matches
                 if m.start() > content_start and not _in_toc_zone(m.start(), toc_zones)
             ]
-            if content_matches:
-                best = content_matches[0]
-            else:
+            if not content_matches:
                 outside = [m for m in matches if not _in_toc_zone(m.start(), toc_zones)]
                 if not outside:
                     continue
-                best = outside[-1]
+                content_matches = outside
+
+            if item_id in _UNIQUE_CONTENT_ITEMS and len(content_matches) > 1:
+                # Prefer the match whose following window looks like real prose, not page refs.
+                def _content_score(m: re.Match[str]) -> tuple[int, int]:
+                    window = body[m.start() : min(len(body), m.start() + 600)].strip()
+                    page_ref = 1 if is_page_reference_text(window) else 0
+                    return (page_ref, -m.start())
+
+                content_matches = sorted(content_matches, key=_content_score)
+                if _content_score(content_matches[0])[0] == 0:
+                    best = content_matches[0]
+                else:
+                    continue
+            elif content_matches:
+                best = content_matches[0]
+            else:
+                continue
 
             hits.append(
                 SegmentResult(
@@ -486,6 +537,7 @@ class Segmenter:
         already_found: set[str],
         *,
         run_id: str | None = None,
+        max_split_depth: int = 2,
     ) -> list[SegmentResult]:
         """LLM fallback: ask the model to identify item boundaries in a text chunk.
 
@@ -509,16 +561,17 @@ class Segmenter:
             return []
 
         segment_template = load_prompt("sec_segment_fallback")
-        chunk_size = 8000
         hits: list[SegmentResult] = []
 
-        for chunk_start in range(0, len(body), chunk_size):
-            chunk_end = min(chunk_start + chunk_size, len(body))
+        def _parse_chunk(chunk_start: int, chunk_end: int, depth: int) -> bool:
+            """Return True if chunk was processed without needing a split retry."""
             chunk = body[chunk_start:chunk_end]
+            if len(chunk) < 400:
+                return True
 
             still_missing = [iid for iid in missing_ids if iid not in {h.item_id for h in hits}]
             if not still_missing:
-                break
+                return True
 
             prompt = segment_template.format(
                 missing_items=", ".join("Item " + iid for iid in still_missing),
@@ -537,7 +590,7 @@ class Segmenter:
                     max_tokens=1024,
                 )
                 if not isinstance(raw, str):
-                    continue
+                    return False
 
                 raw_clean = raw.strip()
                 if raw_clean.startswith("```"):
@@ -546,7 +599,7 @@ class Segmenter:
 
                 items_found = _json.loads(raw_clean)
                 if not isinstance(items_found, list):
-                    continue
+                    return False
 
                 for item in items_found:
                     iid = _normalize_item_id(str(item.get("item_id", "")))
@@ -562,14 +615,35 @@ class Segmenter:
                             method=SegmentMethod.LLM,
                         )
                     )
+                return True
             except BudgetExceededError as exc:
-                # Per-filing LLM budget is exhausted; further chunks would only
-                # raise again before any network call. Stop scanning the rest of
-                # the (potentially very long) body instead of spinning to the end.
-                logger.warning("LLM segment fallback stopped at chunk %d: %s", chunk_start, exc)
-                break
+                logger.warning(
+                    "LLM segment fallback stopped at chunk %d: %s", chunk_start, exc
+                )
+                raise
             except (AllProvidersFailed, Exception) as exc:
-                logger.warning("LLM segment fallback failed for chunk %d: %s", chunk_start, exc)
-                continue
+                logger.warning(
+                    "LLM segment fallback failed for chunk %d (depth=%d): %s",
+                    chunk_start,
+                    depth,
+                    exc,
+                )
+                if depth < max_split_depth and len(chunk) > 2000:
+                    mid = chunk_start + len(chunk) // 2
+                    _parse_chunk(chunk_start, mid, depth + 1)
+                    _parse_chunk(mid, chunk_end, depth + 1)
+                    return True
+                return False
+
+        chunk_size = 8000
+        try:
+            for chunk_start in range(0, len(body), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(body))
+                if not _parse_chunk(chunk_start, chunk_end, depth=0):
+                    continue
+                if not [iid for iid in missing_ids if iid not in {h.item_id for h in hits}]:
+                    break
+        except BudgetExceededError:
+            pass
 
         return hits

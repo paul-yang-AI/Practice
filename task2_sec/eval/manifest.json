@@ -47,6 +47,48 @@
       "stress": [
         "k1_toc"
       ]
+    },
+    {
+      "ticker": "MSFT",
+      "cik": "789019",
+      "accession": "0001564590-20-034944",
+      "url": "https://www.sec.gov/Archives/edgar/data/789019/000156459020034944/msft-10k_20200630.htm",
+      "label": "heldout_longitudinal",
+      "split": "heldout",
+      "stress": [
+        "longitudinal",
+        "format_drift"
+      ],
+      "cache_optional": true,
+      "notes": "Same issuer, FY2020 — tests cross-year format drift without train tuning."
+    },
+    {
+      "ticker": "O",
+      "cik": "726728",
+      "accession": "0001628280-25-008142",
+      "url": "https://www.sec.gov/Archives/edgar/data/726728/000162828025008142/o-20241231.htm",
+      "label": "heldout_reit",
+      "split": "heldout",
+      "stress": [
+        "reit",
+        "real_estate"
+      ],
+      "cache_optional": true,
+      "notes": "REIT filing variant — optional until HTML is cached locally."
+    },
+    {
+      "ticker": "AAPL",
+      "cik": "320193",
+      "accession": "0001193125-10-012091",
+      "url": "https://www.sec.gov/Archives/edgar/data/320193/000119312510012091/d10k.htm",
+      "label": "heldout_pre_ixbrl",
+      "split": "heldout",
+      "stress": [
+        "pre_ixbrl",
+        "legacy_html"
+      ],
+      "cache_optional": true,
+      "notes": "Pre-iXBRL HTML layout — optional; fetch once to populate eval/cache/."
     }
   ],
   "gold_items": [
@@ -64,5 +106,14 @@
     "1A",
     "7",
     "8"
-  ]
+  ],
+  "gold_provenance": {
+    "method": "pipeline_generated_tier0",
+    "use_llm_fallback": false,
+    "use_arbiter": false,
+    "regenerate_script": "scripts/regenerate_gold.py",
+    "spot_checks": [
+      "Citi Item 7A: verified real MARKET RISK body (~146k chars), not TOC index row"
+    ]
+  }
 }

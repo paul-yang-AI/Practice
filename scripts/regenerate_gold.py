@@ -33,7 +33,17 @@ def main() -> None:
                 entry["end"] = item.end
             gold_items[item.item_id] = entry
 
-        out = {"items": gold_items}
+        out = {
+            "provenance": "pipeline_generated_tier0",
+            "generated_with": {
+                "use_llm_fallback": False,
+                "use_arbiter": False,
+            },
+            "spot_checks": [
+                "Citi Item 7A: real MARKET RISK body, not TOC index row (manual verify)"
+            ],
+            "items": gold_items,
+        }
         path = GOLD_DIR / f"{accession}.json"
         path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
         print(f"Updated gold: {filing['ticker']} {accession}")

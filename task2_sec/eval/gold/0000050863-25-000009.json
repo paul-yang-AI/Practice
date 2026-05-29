@@ -1,4 +1,12 @@
 {
+  "provenance": "pipeline_generated_tier0",
+  "generated_with": {
+    "use_llm_fallback": false,
+    "use_arbiter": false
+  },
+  "spot_checks": [
+    "Citi Item 7A: real MARKET RISK body, not TOC index row (manual verify)"
+  ],
   "items": {
     "1": {
       "status": "extracted",
@@ -10,9 +18,9 @@
     "1A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 43,
+      "text_len": 107,
       "start": 5745,
-      "end": 5788
+      "end": 5852
     },
     "1B": {
       "status": "extracted",
@@ -59,9 +67,9 @@
     "6": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 336,
+      "text_len": 256,
       "start": 468825,
-      "end": 469161
+      "end": 469081
     },
     "7": {
       "status": "extracted",
@@ -73,9 +81,9 @@
     "7A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 64,
-      "start": 5788,
-      "end": 5852
+      "text_len": 80,
+      "start": 469081,
+      "end": 469161
     },
     "8": {
       "status": "extracted",

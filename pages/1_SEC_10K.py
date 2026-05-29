@@ -21,7 +21,9 @@ from shared_harness.edgar_client import (
 from shared_harness.schemas.sec_schema import FilingExtraction, ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
+from task2_sec.pipeline.content_quality import assess_required_item, is_likely_toc_stub
 from task2_sec.pipeline.segment import is_page_reference_text
+from task2_sec.pipeline.segment_classify import SegmentClass, classify_segment_text
 
 _MANIFEST = Path(__file__).resolve().parent.parent / "task2_sec" / "eval" / "manifest.json"
 _PART_ORDER = ["I", "II", "III", "IV"]
@@ -117,13 +119,24 @@ _SEC_CONTENT_CSS = """
 
 
 def _render_quality_badge(item) -> None:
-    """Show tier/method badge; only show numeric confidence when anomalous."""
-    if item.status == ItemStatus.INCORPORATED_BY_REFERENCE:
+    """Show tier/method badge and content-quality label."""
+    quality = assess_required_item(item.item_id, item.text, item.status.value)
+    quality_labels = {
+        "ok": ("✅ 真實內文", "#059669", "#ecfdf5"),
+        "toc_stub": ("📑 TOC 索引列", "#b45309", "#fffbeb"),
+        "missing": ("❌ 缺失", "#b91c1c", "#fef2f2"),
+        "incorporated": ("📎 合併引用", "#4338ca", "#eef2ff"),
+        "low_confidence": ("⚠️ 低信心", "#c2410c", "#fff7ed"),
+    }
+    if quality in quality_labels:
+        label, color, bg = quality_labels[quality]
         st.markdown(
-            '<span class="tier-badge" style="background:#eef2ff;color:#4338ca;">'
-            "📎 合併引用 · 已偵測</span>",
+            f'<span class="tier-badge" style="background:{bg};color:{color};">'
+            f"{label}</span>",
             unsafe_allow_html=True,
         )
+
+    if item.status == ItemStatus.INCORPORATED_BY_REFERENCE:
         return
     if item.status == ItemStatus.LOW_CONFIDENCE or item.confidence < 0.9:
         st.progress(item.confidence, text=f"⚠️ 低信心：{item.confidence:.0%}")
@@ -131,6 +144,10 @@ def _render_quality_badge(item) -> None:
             label, color = _METHOD_LABELS.get(item.segment_method, (item.segment_method, "#666"))
             st.caption(f"抽取方式：{label}")
         return
+    if item.status == ItemStatus.EXTRACTED and item.text:
+        seg_cls = classify_segment_text(item.text)
+        if seg_cls == SegmentClass.CROSS_REF_ONLY and quality == "ok":
+            st.caption("📄 交叉引用索引（頁碼導向，非完整內文）")
     if item.segment_method:
         label, color = _METHOD_LABELS.get(item.segment_method, (item.segment_method, "#666"))
         st.markdown(
@@ -139,7 +156,7 @@ def _render_quality_badge(item) -> None:
             f'<span style="font-size:0.82rem;color:#6b7280;">契約驗證通過</span>',
             unsafe_allow_html=True,
         )
-    else:
+    elif item.status == ItemStatus.EXTRACTED:
         st.caption("✓ 契約驗證通過（span integrity + token ratio）")
 
 
@@ -155,7 +172,10 @@ def _render_item(
 
     if item.status == ItemStatus.EXTRACTED and item.text:
         is_page_ref = is_page_reference_text(item.text)
-        suffix = "（交叉引用）" if is_page_ref else ""
+        is_toc_stub = is_likely_toc_stub(item.text)
+        suffix = ""
+        if is_page_ref or is_toc_stub:
+            suffix = "（交叉引用）" if is_page_ref else "（TOC 索引）"
         with st.expander(f"{icon} {title}{suffix}", expanded=False):
             col_badge, col_len = st.columns([2, 1])
             with col_badge:
@@ -168,6 +188,11 @@ def _render_item(
                 st.info(
                     "📄 此項目為頁碼交叉引用索引（內容散見於報表其他頁）。"
                     "請使用上方連結開啟官方原文查看完整內容。"
+                )
+            elif is_toc_stub:
+                st.warning(
+                    "📑 此段疑似目錄（TOC）索引列，而非 Item 正文。"
+                    "若內容過短且以頁碼為主，請改用 SEC 互動式檢視器查閱完整章節。"
                 )
 
             formatted = _format_sec_text(item.text)
@@ -343,9 +368,15 @@ def _log_sec_extraction(
     html_len: int,
     label: str | None = None,
     error: str | None = None,
+    run_id: str | None = None,
 ) -> None:
-    run_id = str(uuid.uuid4())
-    job_store.create_run("sec", run_id=run_id, label=label or f"SEC {accession}")
+    run_id = run_id or str(uuid.uuid4())
+    if not run_id:
+        run_id = str(uuid.uuid4())
+    try:
+        job_store.create_run("sec", run_id=run_id, label=label or f"SEC {accession}")
+    except Exception:
+        pass
     if result is not None:
         log = {
             "accession": accession,
@@ -411,6 +442,8 @@ def _execute_sec_extraction(
     label: str | None = None,
 ) -> None:
     use_arbiter = True
+    run_id = str(uuid.uuid4())
+    job_store.create_run("sec", run_id=run_id, label=label or f"SEC {accession}")
     with st.spinner(f"正在抽取 {accession}…"):
         try:
             html, resolved_cik, source_url = fetch_filing_html(
@@ -427,7 +460,7 @@ def _execute_sec_extraction(
                 ticker=ticker,
                 source_url=source_url or filing_url,
                 use_arbiter=use_arbiter,
-                run_id=None,
+                run_id=run_id,
             )
             st.session_state["sec_result"] = result
             st.session_state["sec_result_accession"] = accession
@@ -439,6 +472,7 @@ def _execute_sec_extraction(
                 accession=accession,
                 html_len=len(html),
                 label=label,
+                run_id=run_id,
             )
         except Exception as exc:
             err_msg = str(exc)
@@ -449,6 +483,7 @@ def _execute_sec_extraction(
                 html_len=st.session_state.get("sec_html_len", 0),
                 label=label,
                 error=err_msg,
+                run_id=run_id,
             )
             if "CIK" in err_msg or "404" in err_msg or "index" in err_msg.lower():
                 st.info(

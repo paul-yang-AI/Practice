@@ -172,7 +172,57 @@ Train split (3 filings) + heldout (BRK.B) were chosen to stress **different stru
 - 10-K/A amendment filings
 - Longitudinal drift (same issuer across years)
 
-**Methodology caveats**: gold boundaries are pipeline-generated (circular); `required_items` checks status only. We compensate with contract metrics (span/token/header) and targeted spot-checks — e.g. Citi Item 7A was corrected from a 98-char TOC index row (`70–129, 174–178…`) to 146k chars of real `MARKET RISK` content via alternate section-title anchors.
+**Methodology caveats**: gold boundaries are pipeline-generated (circular). **As of P0**, `required_items` also use **content-quality** checks (`toc_stub` on required items → eval failure `toc_stub_required_item`). We compensate with contract metrics (span/token/header) and targeted spot-checks — e.g. Citi Item 7A was corrected from a 98-char TOC index row to 146k chars of real `MARKET RISK` content.
+
+**Expanded held-out manifest** (optional, `cache_optional: true` until HTML cached): MSFT FY2020 (longitudinal), Realty Income REIT, AAPL 2010 pre-iXBRL.
+
+---
+
+## Roadmap P0–P3 (Implemented)
+
+| Phase | Focus | Key modules |
+|-------|-------|-------------|
+| **P0** | Eval honesty | `content_quality.py`, `eval_runner.py` strict required-item check, `gold_provenance` in manifest |
+| **P1** | Tier0 robustness | Adaptive thresholds in `segment.py`; unique-anchor safety for Items 7A/8 |
+| **P2** | Surgical LLM | `segment_classify.py`, arbiter + `run_id` in UI, recursive LLM chunk split, `run_eval.py --tier0-only` / `--with-llm` |
+| **P3** | Product | UI quality badges; longitudinal held-out entry; char→HTML mapping deferred to Future Work |
+
+### Definition of “extracted well”
+
+For any HTML 10-K, success means:
+
+1. **Zero hallucination**: `body[start:end] == text` (span integrity)
+2. **Correct status** per Item: `extracted` with real prose, or honest `missing` / `cross-ref` / `incorporated_by_reference`
+3. **Not** “every Item must be long” — Part III incorporation and page-index rows are valid outcomes when labeled correctly
+
+---
+
+## LLM vs Tier0 Strategy (RAG STAR Analogy)
+
+Medical RAG v2 philosophy applies here: **LLM produces structured decisions; code produces verifiable output.**
+
+| RAG pattern | SEC 10-K equivalent | Recommendation |
+|-------------|---------------------|----------------|
+| Map-Reduce full document | Chunk-wise Item extraction + merge | **Avoid** — breaks span integrity, high cost |
+| Schema-driven JSON | Fixed Item 1–16 + char offsets | **Already implemented** |
+| Field-level citations | `start`/`end` char spans | **Core contract** |
+| Recursive chunk retry | `_segment_from_llm` split-on-failure | **Implemented (P2)** |
+| LLM classification only | `SegmentClass` enum | **Implemented (P2)** |
+| Entropy routing | Tier0 → Tier1 classify → Tier2 arbiter | **Implemented (P2)** |
+
+Train KPI path remains **Tier0-only ($0/filing)**. LLM paths are opt-in via eval flags or UI arbiter for low-confidence boundaries.
+
+---
+
+## Overfitting & Generalization Boundaries
+
+| Risk type | Present? | Mitigation |
+|-----------|----------|------------|
+| Hard overfitting (ticker/accession branches) | No | No ticker-specific code in pipeline |
+| Soft overfitting (constants tuned on 3 train filings) | Yes | P1 adaptive scaling; expand held-out dimensions |
+| Eval overfitting (circular gold, status-only KPI) | Partially addressed | P0 content-quality; optional held-out filings; spot-check notes in gold |
+
+**Realistic goal**: not “100% perfect prose for every Item on every filing,” but **correct status + zero-hallucination spans** across modern HTML 10-K variants, with graceful degradation on legacy formats.
 
 ---
 
