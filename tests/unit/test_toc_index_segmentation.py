@@ -8,6 +8,7 @@ from task2_sec.pipeline.segment import (
     Segmenter,
     _find_toc_zones,
     _is_page_reference_only,
+    _is_topic_page_index_block,
     _needs_section_name_fallback,
     is_page_reference_text,
 )
@@ -75,6 +76,55 @@ def test_upgrade_short_toc_stub_to_later_section_name() -> None:
     text_7a = body[seg_7a.start : seg_7a.end]
     assert "70-129" not in text_7a or "interest rate" in text_7a
     assert "Real market risk" in text_7a or seg_7a.method == SegmentMethod.SECTION_NAME
+
+
+@pytest.mark.unit
+def test_topic_page_index_block_detects_bare_page_number_lists() -> None:
+    index_block = (
+        "\nRisk Factors\n\n31\n\nSales and Marketing\n\n45\n\n"
+        "Quantitative and Qualitative Disclosures About Market Risk\n\n47\n"
+    )
+    assert _is_topic_page_index_block(index_block) is True
+    prose = (
+        "Risk Factors\nThe following summarizes the material factors that make "
+        "an investment in our securities speculative or risky."
+    )
+    assert _is_topic_page_index_block(prose) is False
+
+
+@pytest.mark.unit
+def test_upgrade_cross_ref_stub_at_document_end_to_earlier_section_name() -> None:
+    """Cross-reference index at EOF upgrades to earlier prose (bidirectional, generic HTML)."""
+    html = """
+    <html><body>
+    <h2>Risk Factors</h2>
+    <p>{}</p>
+    <h2>Management's Discussion and Analysis of Financial Condition</h2>
+    <p>{}</p>
+    <h2>Report of Independent Registered Public Accounting Firm</h2>
+    <p>{}</p>
+    <div>
+    Item 1. Business: Pages 3-4, 13
+    Item 1A. Risk Factors Pages 31-46
+    Item 7. MD&A Pages 47-52
+    Item 8. Financial Statements and Supplementary Data Pages 53-101
+    </div>
+    </body></html>
+    """.format(
+        "Material risk disclosure prose. " * 80,
+        "MD&A narrative with liquidity and capital resources. " * 80,
+        "Auditor opinion and consolidated financial statements discussion. " * 80,
+    )
+    segmenter = Segmenter()
+    body, segments = segmenter.segment(html, use_llm_fallback=False)
+    seg_1a = next(s for s in segments if s.item_id == "1A")
+    text_1a = body[seg_1a.start : seg_1a.end]
+    assert "Pages 31-46" not in text_1a
+    assert "Material risk disclosure" in text_1a
+    seg_8 = next(s for s in segments if s.item_id == "8")
+    text_8 = body[seg_8.start : seg_8.end]
+    assert "Pages 53-101" not in text_8
+    assert "Auditor opinion" in text_8 or "financial statements" in text_8.lower()
 
 
 @pytest.mark.unit

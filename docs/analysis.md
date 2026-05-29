@@ -162,7 +162,7 @@ Train split (3 filings) + heldout (BRK.B) were chosen to stress **different stru
 | Filing | Variant stressed | Pipeline path exercised |
 |--------|------------------|-------------------------|
 | MSFT | Standard iXBRL + Item headers | TOC + regex |
-| INTC | Cross-reference index (Item → page) | regex + `is_page_reference_text` |
+| INTC | Cross-reference index (Item → page) | section_name bidirectional upgrade + topic-index detection |
 | Citi | Bank mega-TOC + bare page ranges + incorporation | TOC stub scrub + alternate section titles |
 | BRK.B (heldout) | K-1-style TOC | section_name |
 

@@ -21,30 +21,32 @@ HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Section name → Item ID mapping for filings without explicit "Item N" headers.
-# Patterns require the section name to appear on its own line (standalone header).
+# Patterns require section titles on their own line (start of body or after newline).
+_LINE = r"(?:^|\n)"
 _SECTION_NAME_MAP: list[tuple[str, str]] = [
-    (r"\n\s*Business\s*\n", "1"),
-    (r"\n\s*Risk\s+Factors\s*\n", "1A"),
-    (r"\n\s*Unresolved\s+Staff\s+Comments\s*\n", "1B"),
-    (r"\n\s*Cybersecurity\s*\n", "1C"),
-    (r"\n\s*Properties\s*\n", "2"),
-    (r"\n\s*Legal\s+Proceedings\s*\n", "3"),
-    (r"\n\s*Mine\s+Safety\s+Disclosures?\s*\n", "4"),
-    (r"\n\s*Management.s\s+Discussion\s+and\s+Analysis\b[^\n]*\n", "7"),
-    (r"\n\s*Quantitative\s+and\s+Qualitative\s+Disclosures?\s+About\s+Market\s+Risk\s*\n", "7A"),
-    (r"\n\s*Market\s+Risk\s*\n\s*Overview\b", "7A"),
-    (r"\n\s*Financial\s+Statements\s+and\s+Supplementary\s+Data\s*\n", "8"),
-    (r"\n\s*Report\s+of\s+Independent\s+Registered\s+Public\s+Accounting\s+Firm\b[^\n]*\n", "8"),
-    (r"\n\s*Changes\s+in\s+and\s+Disagreements\s+[Ww]ith\s+Accountants\b[^\n]*\n", "9"),
-    (r"\n\s*Controls\s+and\s+Procedures\s*\n", "9A"),
-    (r"\n\s*Directors[,\s]+Executive\s+Officers\b[^\n]*\n", "10"),
-    (r"\n\s*Executive\s+Compensation\s*\n", "11"),
-    (r"\n\s*Security\s+Ownership\b[^\n]*\n", "12"),
-    (r"\n\s*Certain\s+Relationships\s+and\s+Related\s+Transactions\b[^\n]*\n", "13"),
-    (r"\n\s*Principal\s+Account(?:ant|ing)\s+Fees\b[^\n]*\n", "14"),
-    (r"\n\s*Exhibits?\s+and\s+Financial\s+Statement\s+Schedules?\b[^\n]*\n", "15"),
-    (r"\n\s*Form\s+10-K\s+Summary\s*\n", "16"),
+    # Cross-reference 10-Ks often use SEC-standard Business subheadings instead of "Item 1".
+    (_LINE + r"\s*General\s+[Dd]evelopment\s+of\s+[Bb]usiness\s*\n", "1"),
+    (_LINE + r"\s*Business\s*\n", "1"),
+    (_LINE + r"\s*Risk\s+Factors\s*\n", "1A"),
+    (_LINE + r"\s*Unresolved\s+Staff\s+Comments\s*\n", "1B"),
+    (_LINE + r"\s*Cybersecurity\s*\n", "1C"),
+    (_LINE + r"\s*Properties\s*\n", "2"),
+    (_LINE + r"\s*Legal\s+Proceedings\s*\n", "3"),
+    (_LINE + r"\s*Mine\s+Safety\s+Disclosures?\s*\n", "4"),
+    (_LINE + r"\s*Management.s\s+Discussion\s+and\s+Analysis\b[^\n]*\n", "7"),
+    (_LINE + r"\s*Quantitative\s+and\s+Qualitative\s+Disclosures?\s+About\s+Market\s+Risk\s*\n", "7A"),
+    (_LINE + r"\s*Market\s+Risk\s*\n\s*Overview\b", "7A"),
+    (_LINE + r"\s*Financial\s+Statements\s+and\s+Supplementary\s+Data\s*\n", "8"),
+    (_LINE + r"\s*Report\s+of\s+Independent\s+Registered\s+Public\s+Accounting\s+Firm\b[^\n]*\n", "8"),
+    (_LINE + r"\s*Changes\s+in\s+and\s+Disagreements\s+[Ww]ith\s+Accountants\b[^\n]*\n", "9"),
+    (_LINE + r"\s*Controls\s+and\s+Procedures\s*\n", "9A"),
+    (_LINE + r"\s*Directors[,\s]+Executive\s+Officers\b[^\n]*\n", "10"),
+    (_LINE + r"\s*Executive\s+Compensation\s*\n", "11"),
+    (_LINE + r"\s*Security\s+Ownership\b[^\n]*\n", "12"),
+    (_LINE + r"\s*Certain\s+Relationships\s+and\s+Related\s+Transactions\b[^\n]*\n", "13"),
+    (_LINE + r"\s*Principal\s+Account(?:ant|ing)\s+Fees\b[^\n]*\n", "14"),
+    (_LINE + r"\s*Exhibits?\s+and\s+Financial\s+Statement\s+Schedules?\b[^\n]*\n", "15"),
+    (_LINE + r"\s*Form\s+10-K\s+Summary\s*\n", "16"),
 ]
 
 _SECTION_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -143,6 +145,79 @@ def _in_toc_zone(pos: int, zones: list[tuple[int, int]]) -> bool:
     return any(lo <= pos < hi for lo, hi in zones)
 
 
+def _anchor_preview(body: str, start: int, *, window_chars: int = 600) -> str:
+    return body[start : min(len(body), start + window_chars)].strip()
+
+
+def _anchor_quality_key(
+    body: str,
+    start: int,
+    toc_zones: list[tuple[int, int]],
+) -> tuple[int, int, int]:
+    """Sort key for section_name anchors — lower is better (real prose, outside TOC)."""
+    window = _anchor_preview(body, start)
+    indexish = 1 if _is_topic_page_index_block(window) else 0
+    in_toc = 1 if _in_toc_zone(start, toc_zones) else 0
+    return (indexish, in_toc, start)
+
+
+def _best_section_name_by_id(
+    body: str,
+    name_hits: list[SegmentResult],
+    toc_zones: list[tuple[int, int]],
+) -> dict[str, SegmentResult]:
+    """Pick the best prose anchor per item (not simply the last match in the document)."""
+    by_id: dict[str, SegmentResult] = {}
+    best_keys: dict[str, tuple[int, int, int]] = {}
+    for hit in name_hits:
+        key = _anchor_quality_key(body, hit.start, toc_zones)
+        prev = best_keys.get(hit.item_id)
+        if prev is None or key < prev:
+            by_id[hit.item_id] = hit
+            best_keys[hit.item_id] = key
+    return by_id
+
+
+def _is_usable_content_anchor(
+    body: str,
+    anchor: SegmentResult,
+    toc_zones: list[tuple[int, int]],
+) -> bool:
+    """True when a section_name hit looks like real prose, not another index row."""
+    if _anchor_quality_key(body, anchor.start, toc_zones)[0] == 1:
+        return False
+    return True
+
+
+_TOPIC_INDEX_LINE_RE = re.compile(r"^\d{1,3}$")
+
+
+def _is_topic_page_index_block(text: str, *, max_chars: int = 900) -> bool:
+    """Detect topic + bare page-number index blocks (cross-ref filings without 'Pages' keyword)."""
+    clean = text.strip()
+    if not clean or len(clean) > max_chars:
+        return False
+    if is_page_reference_text(clean):
+        return True
+    if len(clean) < 500 and _PAGE_REF_RE.search(clean):
+        if len(_strip_page_citation_text(clean)) < 80:
+            return True
+    lines = [ln.strip() for ln in clean.splitlines() if ln.strip()]
+    if len(lines) >= 2:
+        second = lines[1]
+        if re.match(r"^\d{1,3}\s*[–\-]\s*\d{1,3}$", second) or _TOPIC_INDEX_LINE_RE.match(second):
+            return True
+    if len(lines) < 4:
+        return False
+    digit_lines = sum(1 for ln in lines if _TOPIC_INDEX_LINE_RE.match(ln))
+    if digit_lines < 2:
+        return False
+    short_lines = sum(
+        1 for ln in lines if len(ln) < 55 and not ln.endswith(".") and len(ln.split()) < 8
+    )
+    return short_lines >= 3
+
+
 def _is_page_reference_only(text: str) -> bool:
     """Detect if text is just a cross-reference index entry (page numbers only)."""
     if len(text) > 500:
@@ -219,13 +294,16 @@ def _scrub_toc_stub_segments(
     segments: list[SegmentResult],
     *,
     name_by_id: dict[str, SegmentResult] | None = None,
+    toc_zones: list[tuple[int, int]] | None = None,
 ) -> list[SegmentResult]:
-    """Drop short page-citation stubs when real section_name content exists later.
+    """Drop page-citation stubs when a usable section_name anchor exists.
 
-    Cross-reference-only items (e.g. INTC index rows with no in-document section)
-    are kept so the UI can flag them as page-reference entries.
+    Bare bank-TOC rows (Citi-style) require a *later* anchor; cross-reference index
+    rows (``Pages N`` style) may upgrade to an *earlier* prose anchor (bidirectional).
     """
     name_by_id = name_by_id or {}
+    if toc_zones is None:
+        toc_zones = _find_toc_zones(body)
     short_limit = _scale_short_segment_chars(len(body))
     kept: list[SegmentResult] = []
     for seg in segments:
@@ -234,7 +312,15 @@ def _scrub_toc_stub_segments(
             kept.append(seg)
             continue
         alt = name_by_id.get(seg.item_id)
-        if alt is None or alt.start <= seg.start:
+        if alt is None or not _is_usable_content_anchor(body, alt, toc_zones):
+            kept.append(seg)
+            continue
+        is_cross_ref = bool(re.search(r"\bPages?\s+\d", text, re.IGNORECASE))
+        if is_cross_ref:
+            if alt.start == seg.start:
+                kept.append(seg)
+            continue
+        if alt.start <= seg.start:
             kept.append(seg)
             continue
     if len(kept) == len(segments):
@@ -283,13 +369,8 @@ class Segmenter:
                 name_hits_cache = self._segment_from_section_names(body, toc_zones=toc_zones)
             return name_hits_cache
 
-        def name_by_id_latest() -> dict[str, SegmentResult]:
-            by_id: dict[str, SegmentResult] = {}
-            for hit in get_name_hits():
-                prev = by_id.get(hit.item_id)
-                if prev is None or hit.start > prev.start:
-                    by_id[hit.item_id] = hit
-            return by_id
+        def name_by_id_best() -> dict[str, SegmentResult]:
+            return _best_section_name_by_id(body, get_name_hits(), toc_zones)
 
         toc_hits = self._segment_from_toc(
             html, body, toc_zones=toc_zones, starts_by_id=starts_by_id
@@ -306,9 +387,14 @@ class Segmenter:
                 supplementary = [s for s in merged if s.item_id not in name_ids]
                 merged = self._merge_segments(name_hits, supplementary, len(body))
 
-        merged = self._upgrade_short_segments(body, merged, name_by_id=name_by_id_latest())
-        merged = _scrub_toc_stub_segments(body, merged, name_by_id=name_by_id_latest())
-        merged = self._supplement_from_section_names(body, merged, name_by_id=name_by_id_latest())
+        best_names = name_by_id_best()
+        merged = self._upgrade_short_segments(
+            body, merged, name_by_id=best_names, toc_zones=toc_zones
+        )
+        merged = _scrub_toc_stub_segments(
+            body, merged, name_by_id=best_names, toc_zones=toc_zones
+        )
+        merged = self._supplement_from_section_names(body, merged, name_by_id=best_names)
 
         found_ids = {s.item_id for s in merged}
         missing_count = sum(1 for iid in STANDARD_10K_ITEMS if iid not in found_ids)
@@ -345,23 +431,33 @@ class Segmenter:
         segments: list[SegmentResult],
         *,
         name_by_id: dict[str, SegmentResult] | None = None,
+        toc_zones: list[tuple[int, int]] | None = None,
     ) -> list[SegmentResult]:
-        """Replace TOC index stubs with later section_name hits when available."""
+        """Replace page-citation stubs with section_name prose anchors when available."""
+        if toc_zones is None:
+            toc_zones = _find_toc_zones(body)
         if name_by_id is None:
-            name_by_id = {}
-            for hit in self._segment_from_section_names(body):
-                prev = name_by_id.get(hit.item_id)
-                if prev is None or hit.start > prev.start:
-                    name_by_id[hit.item_id] = hit
+            name_hits = self._segment_from_section_names(body, toc_zones=toc_zones)
+            name_by_id = _best_section_name_by_id(body, name_hits, toc_zones)
 
         upgraded = False
         short_limit = _scale_short_segment_chars(len(body))
         for i, seg in enumerate(segments):
             text = body[seg.start : seg.end].strip()
-            if len(text) >= short_limit:
+            is_cross_ref = bool(re.search(r"\bPages?\s+\d", text, re.IGNORECASE))
+            is_stub = len(text) < short_limit or is_page_reference_text(text)
+            if not is_stub:
                 continue
             alt = name_by_id.get(seg.item_id)
-            if alt is None or alt.start <= seg.start:
+            if alt is None or not _is_usable_content_anchor(body, alt, toc_zones):
+                continue
+            if alt.start == seg.start:
+                continue
+            if is_cross_ref:
+                replace = True
+            else:
+                replace = alt.start > seg.start
+            if not replace:
                 continue
             segments[i] = SegmentResult(
                 item_id=seg.item_id,
@@ -544,6 +640,7 @@ class Segmenter:
         """Fallback: detect sections by their standard 10-K section titles."""
         if toc_zones is None:
             toc_zones = _find_toc_zones(body)
+        toc_at_front = bool(toc_zones and toc_zones[0][0] == 0)
         content_start = _content_start_for_names(len(body), toc_zones)
         hits: list[SegmentResult] = []
         for pattern, item_id in _SECTION_NAME_PATTERNS:
@@ -553,7 +650,8 @@ class Segmenter:
             content_matches = [
                 m
                 for m in matches
-                if m.start() > content_start and not _in_toc_zone(m.start(), toc_zones)
+                if not _in_toc_zone(m.start(), toc_zones)
+                and (not toc_at_front or m.start() > content_start)
             ]
             if not content_matches:
                 outside = [m for m in matches if not _in_toc_zone(m.start(), toc_zones)]
@@ -561,28 +659,22 @@ class Segmenter:
                     continue
                 content_matches = outside
 
-            if item_id in _UNIQUE_CONTENT_ITEMS and len(content_matches) > 1:
-                # Prefer the match whose following window looks like real prose, not page refs.
-                def _content_score(m: re.Match[str]) -> tuple[int, int]:
-                    window = body[m.start() : min(len(body), m.start() + 600)].strip()
-                    page_ref = 1 if is_page_reference_text(window) else 0
-                    return (page_ref, -m.start())
-
-                content_matches = sorted(content_matches, key=_content_score)
-                if _content_score(content_matches[0])[0] == 0:
-                    best = content_matches[0]
-                else:
-                    continue
-            elif content_matches:
-                best = content_matches[0]
-            else:
+            prose_matches = [
+                m
+                for m in content_matches
+                if not _is_topic_page_index_block(_anchor_preview(body, m.start()))
+            ]
+            if not prose_matches:
                 continue
-
+            best_match = min(
+                prose_matches,
+                key=lambda m: _anchor_quality_key(body, m.start(), toc_zones),
+            )
             hits.append(
                 SegmentResult(
                     item_id=item_id,
-                    start=best.start(),
-                    end=best.start(),
+                    start=best_match.start(),
+                    end=best_match.start(),
                     method=SegmentMethod.SECTION_NAME,
                 )
             )

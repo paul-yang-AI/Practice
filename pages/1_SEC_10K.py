@@ -536,19 +536,35 @@ def _execute_sec_extraction(
     cik: str | None,
     source: str,
     label: str | None = None,
+    force_refresh: bool = False,
 ) -> None:
-    use_arbiter = True
+    use_arbiter = bool(st.session_state.get("sec_use_arbiter", False))
     run_id = str(uuid.uuid4())
     job_store.create_run("sec", run_id=run_id, label=label or f"SEC {accession}")
-    with st.spinner(f"正在抽取 {accession}…"):
+    with st.status(f"正在抽取 {accession}…", expanded=True) as status:
         try:
+            fetch_note = (
+                "（強制即時抓取，略過 eval cache）"
+                if force_refresh
+                else "（若無離線 cache 則即時自 SEC 下載）"
+            )
+            status.update(label=f"⬇️ 正在取得 HTML {fetch_note}…")
             html, resolved_cik, source_url = fetch_filing_html(
                 accession,
                 url=filing_url,
                 cik=cik,
-                force_refresh=False,
+                force_refresh=force_refresh,
             )
             display_cik = resolved_cik or cik
+            if use_arbiter:
+                status.update(
+                    label=(
+                        "⚙️ Tier0 分段中；低信心段落將呼叫 **Gemini Pro 仲裁**"
+                        "（Tier2 LLM API，約 30–90 秒，視段落數而定）…"
+                    )
+                )
+            else:
+                status.update(label="⚙️ Tier0 分段與契約驗證中（預設無 LLM，通常數秒）…")
             result = extract_from_html(
                 html,
                 accession=accession,
@@ -556,8 +572,10 @@ def _execute_sec_extraction(
                 ticker=ticker,
                 source_url=source_url or filing_url,
                 use_arbiter=use_arbiter,
+                use_llm_fallback=False,
                 run_id=run_id,
             )
+            status.update(label="✅ 抽取完成", state="complete")
             st.session_state["sec_result"] = result
             st.session_state["sec_result_accession"] = accession
             st.session_state["sec_result_source"] = source
@@ -571,6 +589,7 @@ def _execute_sec_extraction(
                 run_id=run_id,
             )
         except Exception as exc:
+            status.update(label="❌ 抽取失敗", state="error")
             err_msg = str(exc)
             st.error(f"❌ 抽取失敗：{err_msg}")
             _log_sec_extraction(
@@ -680,10 +699,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "混合管線：Tier0（BS4 + 正則分段）→ 跨度完整性驗證 → LLM 仲裁（低信心邊界）。"
+    "混合管線：Tier0（BS4 + 正則分段）→ 跨度完整性驗證 → 可選 LLM 仲裁（低信心邊界）。"
     " **基準集（3）**：train KPI 用；**泛化集（8）**：held-out 診斷（部分預期失敗）；"
-    "**自訂報表**：任意 accession 現場驗證。"
+    "**自訂報表**：任意 accession 即時自 SEC 驗證。"
 )
+
+with st.expander("⚙️ 抽取選項", expanded=False):
+    st.checkbox(
+        "啟用 LLM 邊界仲裁（Tier2 · Gemini Pro）",
+        value=False,
+        key="sec_use_arbiter",
+        help=(
+            "預設關閉，與 Eval Tier0 KPI 一致（數秒完成）。"
+            "開啟後，低信心 Item 會逐段呼叫 LLM API，大型 filing 可能需 30–90 秒。"
+        ),
+    )
+    st.caption(
+        "預設 **Tier0 only**（與 Eval KPI 一致，無 LLM fallback）。"
+        "HTML 一律即時自 SEC 取得（自訂報表強制略過 eval cache；"
+        "manifest 僅在開發者離線 cache 存在時才會讀取，部署環境通常為即時抓取）。"
+    )
 
 tab_train, tab_heldout, tab_custom = st.tabs(
     ["📋 基準集（Train · 3）", "🔬 泛化驗證（Held-out · 8）", "🔗 自訂報表"]
@@ -802,5 +837,6 @@ with tab_custom:
                 cik=custom_cik.strip() or None,
                 source="custom",
                 label=f"{custom_ticker.strip() or custom_accession.strip()} 10-K",
+                force_refresh=True,
             )
     _maybe_render_sec_results(source="custom", accession=custom_accession.strip())

@@ -355,3 +355,14 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   2. `.cursorrules`: read PLAN (invariants) + skim ITERATION (latest entries).
   3. README: ITERATION primary for iteration narrative; PLAN = invariants summary.
 - **Validation**: No code change; doc cross-links consistent with test brief (Git + prompts/ + README + analysis).
+
+### `cross_ref_bidirectional_upgrade` (2026-05-29)
+
+- **Failed path**: INTC cross-reference index rows (`Pages N` at EOF) stayed as UI cross-ref stubs; Citi-sized filings hung in UI because `use_arbiter=True` by default; section_name picked first `Risk Factors` TOC row (Citi 1A → 25-char stub).
+- **Resolution** (generic — no ticker/accession branches):
+  1. `_best_section_name_by_id` + `_is_topic_page_index_block` (bare page lines, title+range second line).
+  2. Bidirectional `_upgrade_short_segments` / `_scrub_toc_stub_segments` for `Pages N` cross-ref stubs.
+  3. Section patterns `(?:^|\n)` for normalize bodies; pick best prose anchor among all matches.
+  4. SEC UI: arbiter **opt-in** (default off, matches eval Tier0); `st.status` step labels; custom tab `force_refresh=True`.
+  5. Regenerated train gold (`scripts/regenerate_gold.py`).
+- **Validation**: `test_upgrade_cross_ref_stub_at_document_end_to_earlier_section_name`, `test_topic_page_index_block_detects_bare_page_number_lists`; INTC 1A/7/8 → 100k+ char prose (Item 1 remains cross-ref — no in-body Item 1 header in that filing format); `pytest -m unit` 123 green; train eval + Citi 1A/7/8 ok.

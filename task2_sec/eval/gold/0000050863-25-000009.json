@@ -11,44 +11,44 @@
     "1": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 195,
-      "start": 468311,
+      "text_len": 177,
+      "start": 468329,
       "end": 468506
     },
     "1A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 107,
-      "start": 5745,
-      "end": 5852
+      "text_len": 108913,
+      "start": 137453,
+      "end": 246366
     },
     "1B": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 145,
+      "text_len": 74,
       "start": 468506,
-      "end": 468651
+      "end": 468580
     },
     "1C": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 19,
-      "start": 5852,
-      "end": 5871
+      "text_len": 20437,
+      "start": 252554,
+      "end": 272991
     },
     "2": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 459,
-      "start": 5871,
-      "end": 6330
+      "text_len": 71,
+      "start": 468580,
+      "end": 468651
     },
     "3": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 43072,
+      "text_len": 25829,
       "start": 425239,
-      "end": 468311
+      "end": 451068
     },
     "4": {
       "status": "extracted",
@@ -67,30 +67,30 @@
     "6": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 256,
+      "text_len": 402,
       "start": 468825,
-      "end": 469081
+      "end": 469227
     },
     "7": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 265,
-      "start": 5480,
-      "end": 5745
+      "text_len": 72295,
+      "start": 65158,
+      "end": 137453
     },
     "7A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 80,
-      "start": 469081,
-      "end": 469161
+      "text_len": 6188,
+      "start": 246366,
+      "end": 252554
     },
     "8": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 66,
-      "start": 469161,
-      "end": 469227
+      "text_len": 152248,
+      "start": 272991,
+      "end": 425239
     },
     "9": {
       "status": "extracted",
@@ -102,9 +102,9 @@
     "9A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 418909,
-      "start": 6330,
-      "end": 425239
+      "text_len": 17261,
+      "start": 451068,
+      "end": 468329
     },
     "9B": {
       "status": "extracted",

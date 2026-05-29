@@ -40,7 +40,7 @@ def test_sec_manifest_all_standard_items_present() -> None:
     manifest = load_manifest(MANIFEST_PATH)
     msft = next(f for f in manifest["filings"] if f["ticker"] == "MSFT")
     html, _, _ = fetch_filing_html(msft["accession"])
-    extraction = extract_from_html(html, accession=msft["accession"], use_arbiter=False)
+    extraction = extract_from_html(html, accession=msft["accession"], use_arbiter=False, use_llm_fallback=False)
 
     assert len(extraction.items) == len(STANDARD_ITEMS)
     item1 = next(i for i in extraction.items if i.item_id == "1")
@@ -56,7 +56,9 @@ def test_sec_manifest_citi_incorporation() -> None:
     manifest = load_manifest(MANIFEST_PATH)
     citi = next(f for f in manifest["filings"] if f["ticker"] == "C")
     html, _, _ = fetch_filing_html(citi["accession"])
-    extraction = extract_from_html(html, accession=citi["accession"], use_arbiter=False)
+    extraction = extract_from_html(
+        html, accession=citi["accession"], use_arbiter=False, use_llm_fallback=False
+    )
 
     item10 = next(i for i in extraction.items if i.item_id == "10")
     item14 = next(i for i in extraction.items if i.item_id == "14")

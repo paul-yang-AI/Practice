@@ -89,16 +89,14 @@
     "9": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 106,
+      "text_len": 271,
       "start": 4928,
-      "end": 5034
+      "end": 5199
     },
     "9A": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 165,
-      "start": 5034,
-      "end": 5199
+      "status": "missing",
+      "confidence": 0.0,
+      "text_len": 0
     },
     "9B": {
       "status": "missing",

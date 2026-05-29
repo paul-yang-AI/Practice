@@ -36,8 +36,8 @@
 ### Zeabur smoke (after push → auto redeploy)
 - [ ] **Browser Agent**: preset "Navigate to Example.com" → Run → Refresh → `success` + **Result** block
 - [ ] **Browser Agent**: preset "Hacker News" → verify multi-step + extracted title
-- [ ] **SEC 10K → 基準集**: MSFT → Extract → Item tree + 結構化文字閱讀視圖
-- [ ] **SEC 10K → 基準集**: Citi → Items 10–14 show `incorporated_by_reference`
+- [ ] **SEC 10K → 基準集**: MSFT → Extract → Item tree; **INTC → 1A/7/8 應為長正文**（Item 1 可能仍 cross-ref）
+- [ ] **SEC 10K → 基準集**: Citi → Extract → 數秒內完成（arbiter 預設關閉）
 - [ ] **SEC 10K → 泛化驗證**: JPM → badge shows partial-fail expectation; extract runs
 - [ ] **SEC 10K**: JSON/Markdown 下載（metrics 下方，應即時無長等待）
 - [ ] **Eval → 基準 Train**: 載入存檔結果正常

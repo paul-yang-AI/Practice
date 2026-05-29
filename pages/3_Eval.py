@@ -75,7 +75,7 @@ def _run_benchmark(*, include_agent: bool) -> None:
         write_eval_csv,
     )
 
-    sec_results = run_sec_eval(split="train", use_arbiter=True)
+    sec_results = run_sec_eval(split="train", use_arbiter=False)
     if include_agent:
         agent_results = run_agent_eval(split="train")
         all_results = [*sec_results, *agent_results]
