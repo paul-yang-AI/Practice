@@ -95,7 +95,7 @@ st.markdown(
     "<p><b>Span Integrity</b>：body[start:end] == text → 零幻覺。"
     "<b>Token Ratio ≥ 0.85</b> → 零摘要（保證原文）。"
     "<b>Header Retention</b> → 邊界精度。"
-    "三個指標結合，讓面試官可以對任意 held-out 10-K 自動驗證品質，無需準備 ground truth。</p>"
+    "三個指標結合，讓使用者可以對任意 held-out 10-K 自動驗證品質，無需準備 ground truth。</p>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -113,7 +113,7 @@ st.markdown(
     "<h4>4. 泛化而非過擬合</h4>"
     "<p>開發只用 4 份 train filing 和 6 個 agent task 做 sanity check。"
     "管線不含任何 filing-specific hardcode（如 CIK 白名單、公司名特判）。"
-    "EDGAR API 搜尋 + CIK 自動解析，讓面試官可以自由輸入任意 10-K accession。</p>"
+    "EDGAR API 搜尋 + CIK 自動解析，讓使用者可以自由輸入任意 10-K accession。</p>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -190,7 +190,10 @@ with st.expander("評估層級說明"):
 """)
 
 with st.expander("系統架構圖（文字版）"):
-    st.code("""
+    st.markdown(
+        """
+<pre style="margin:0;padding:0.85rem 1rem;background:#f8fafc;border:1px solid #e5e7eb;
+border-radius:8px;font-size:0.78rem;line-height:1.45;overflow-x:auto;font-family:Consolas,monospace;">
 ┌──────────────────────────────────────────────────────────────┐
 │                 Streamlit 多頁面應用程式                        │
 ├──────────────┬───────────────────┬────────────────────────────┤
@@ -204,4 +207,7 @@ with st.expander("系統架構圖（文字版）"):
 │  LLM：Gemini Flash / Pro                                       │
 │  預算：$20 全域 · $0.50/代理執行 · 熔斷器                        │
 └──────────────────────────────────────────────────────────────┘
-""", language=None)
+</pre>
+""",
+        unsafe_allow_html=True,
+    )

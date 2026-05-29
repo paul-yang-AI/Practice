@@ -324,7 +324,7 @@ with tab_limits:
 |------|------|----------|
 | **基準評估** | 可重現 KPI、submission 報告 | `tasks.yaml` / `manifest.json` train split |
 | **即時紀錄** | 使用者自訂任務除錯 | SQLite `job_store`（Agent + SEC 抽取頁） |
-| **Held-out** | 考官自行驗證 generalization | 不在 train KPI 內 |
+| **Held-out** | 使用者自行驗證 generalization | 不在 train KPI 內 |
 
 ### Browser Agent — 穩定 / 不穩定
 

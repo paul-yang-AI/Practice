@@ -270,6 +270,7 @@ def _agent_live_progress(run_id: str) -> None:
         )
     if status not in ("running", "queued"):
         st.session_state["agent_auto_refresh"] = False
+        st.rerun()
 
 
 # --- Page Layout ---

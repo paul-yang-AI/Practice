@@ -169,6 +169,7 @@ def _render_html_snippet_viewer(
     *,
     anchor: str | None,
     border_color: str,
+    component_key: str,
 ) -> None:
     """Render SEC HTML snippet in a scrollable viewer that jumps to the item anchor."""
     anchor_js = json.dumps(anchor or "")
@@ -214,21 +215,7 @@ td, th {{ padding: 0.25rem 0.5rem; border: 1px solid #d1d5db; vertical-align: to
 </script></body></html>""",
         height=580,
         scrolling=False,
-    )
-
-
-@st.fragment
-def _html_snippet_fragment(
-    html_snippet: str,
-    *,
-    anchor: str | None,
-    border_color: str,
-    fragment_key: str,
-) -> None:
-    _render_html_snippet_viewer(
-        html_snippet,
-        anchor=anchor,
-        border_color=border_color,
+        key=component_key,
     )
 
 
@@ -300,11 +287,11 @@ def _render_item(
             with tab_html:
                 if item.html_snippet:
                     st.caption("保留原始表格與排版（來自 EDGAR HTML 片段）")
-                    _html_snippet_fragment(
+                    _render_html_snippet_viewer(
                         item.html_snippet,
                         anchor=item.source_anchor,
                         border_color=color,
-                        fragment_key=f"{accession or 'na'}-{item.item_id}",
+                        component_key=f"sec-html-{accession or 'na'}-{item.item_id}",
                     )
                 else:
                     st.info(
