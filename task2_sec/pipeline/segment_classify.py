@@ -56,17 +56,14 @@ def classify_segment_text_with_llm(
 
     try:
         from shared_harness.llm_router import complete
+        from shared_harness.prompt_loader import load_prompt
         from shared_harness.schemas.common import SegmentClassDecision
     except ImportError:
         return base
 
     preview = text.strip()[:1200]
-    prompt = (
-        f"Classify this SEC 10-K Item {item_id} excerpt. "
-        "Return JSON only: "
-        '{"class": "real_content"|"toc_index"|"cross_ref_only"|"incorporated"}'
-        f"\n\nExcerpt:\n{preview}"
-    )
+    template = load_prompt("sec_segment_classify")
+    prompt = template.format(item_id=item_id, preview=preview)
     try:
         raw = complete(
             tier=1,

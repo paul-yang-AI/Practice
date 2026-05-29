@@ -1,0 +1,5 @@
+Classify this SEC 10-K Item {item_id} excerpt.
+Return JSON only: {{"class": "real_content"|"toc_index"|"cross_ref_only"|"incorporated"}}
+
+Excerpt:
+{preview}

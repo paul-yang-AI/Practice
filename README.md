@@ -121,7 +121,7 @@ whaleforce-coding-test/
 │       ├── gold/           #   train 的 gold 邊界標註
 │       └── cache/          #   離線 CI 用的 EDGAR HTML 快取
 ├── shared_harness/         # 跨任務共用基礎設施（見下表）
-├── prompts/                # 版本化 prompt（v1_*.txt）+ SOP（sops/*.md）+ 迭代紀錄
+├── prompts/                # 版本化 prompt（v1_*.txt）+ SOP（sops/*.md）+ 迭代紀錄；索引見 prompts/README.md
 ├── tests/                  # unit / integration / eval 三層測試
 ├── scripts/                # 評估、基線、煙霧測試等 CLI
 ├── reports/                # 評估產物（JSON 已提交；CSV 執行時產生）
@@ -514,10 +514,12 @@ python scripts/demo_circuit_breaker.py                  # 預算熔斷示範
 
 | 階段 | 工具 | 產出 |
 |---|---|---|
-| 架構與計畫 | Cursor | PLAN.md、prompts/ |
+| 架構與計畫 | Cursor | PLAN.md、[prompts/README.md](prompts/README.md) |
 | 10-K 分段 / 指標 | Cursor（TDD） | `test_bs4_anchor.py`、`test_regex_boundary_fallback.py` |
 | 代理恢復設計 | Cursor + PLAN | `recovery.py` + `prompts/sops/recovery.md` |
 | 評估設計 | Cursor | `manifest.json`、`tasks.yaml` |
+| Eval 誠實度 / content-quality | Cursor | `content_quality.py`、[ITERATION.md#content_quality_toc_stub](prompts/ITERATION.md) |
+| Held-out 擴充與 baseline | Cursor | `heldout_baseline.json`、[ITERATION.md#heldout_eval_expansion](prompts/ITERATION.md) |
 | 除錯迭代 | Cursor | `prompts/ITERATION.md`（v1→v2，附測試證據） |
 
 詳細的「失敗路徑 → 解決 → 驗證」敘事見 [prompts/ITERATION.md](prompts/ITERATION.md)；更深入的分析與權衡見 [docs/analysis.md](docs/analysis.md)。

@@ -41,7 +41,7 @@ Include:
 1. Public Git URL
 2. Frontend URL (Zeabur base — both tasks on same deployment)
 3. Env notes: reviewers need their own `GEMINI_API_KEY` + `SEC_USER_AGENT`; `OPENROUTER_API_KEY` optional but improves agent search tasks
-4. Pointer to `docs/analysis.md` and `prompts/ITERATION.md`
+4. Pointer to `docs/analysis.md`, `prompts/ITERATION.md`, and `prompts/README.md`
 
 ## Environment variables (Zeabur)
 

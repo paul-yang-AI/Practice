@@ -46,3 +46,12 @@ GEMINI_API_KEY=...
 OPENROUTER_API_KEY=...
 RUN_BUDGET_USD=20
 ```
+
+## Post-Phase-3 (P0–P3 + Eval Expansion)
+
+| Track | Deliver | Gate |
+|-------|---------|------|
+| **P0** | Eval honesty — `content_quality.py`, strict required-item check | Train KPI unchanged; `toc_stub_required_item` category |
+| **P1–P2** | Tier0 robustness + surgical LLM classify/arbiter | `segment_classify.py`; `run_eval.py --tier0-only` / `--with-llm` |
+| **Eval expansion** | 11-filing manifest, held-out baseline scripts | `heldout_baseline.json` 5/8 ok; honest JPM/AAPL/KSCP gaps in docs |
+| **Prompts audit** | `prompts/README.md`, ITERATION entries, arbiter SOP sync | Reviewer-readable AI collaboration trail |

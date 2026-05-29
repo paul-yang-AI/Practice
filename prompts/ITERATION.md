@@ -62,6 +62,7 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   body-inline mentions. Longer item IDs match first (e.g. "10" before "1").
   Promoted to `prompts/v2_boundary_arbiter.txt` adding: ratio constraint (≥0.85),
   trailing whitespace rule, and explicit negative constraints for numerical preservation.
+  Synced into `prompts/sops/boundary_arbiter.md` (runtime load path via `prompt_loader`).
 - **Validation**: `test_regex_boundary_fallback` green — negative sample
   `"see Item 1 above"` no longer produces a segment hit; `pytest -m unit` all pass.
 
@@ -87,6 +88,9 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   variant=failure_type)` injects the matching SOP fragment from `prompts/sops/recovery.md`.
   Promoted to `prompts/v2_recovery.txt` with per-failure-type strategy options,
   explicit "do NOT repeat" constraint, and JSON-only output format.
+  **Runtime note**: Recovery is deterministic via `STRATEGY_TABLE` — no per-step LLM call.
+  `sops/recovery.md` and `v2_recovery.txt` document the strategy catalog for reviewers
+  and a possible future LLM-guided recovery path.
 - **Validation**: `test_recovery_routing` (9 assertions) green — `ACTION_NO_EFFECT` returns
   different strategies on each call; exhausted strategies return `None`; `CAPTCHA_OR_LOGIN`
   always returns `blocked`. L2 `test_agent_recovery_loop` confirms recovery→success and
@@ -278,3 +282,57 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
 - **Failed path**: Eval page mixed SEC/Agent wide CSV; only preset train tasks; no distinction from live user runs.
 - **Resolution**: Three tabs — Benchmark train cards, Known limitations, Live agent runs from SQLite; load persisted `eval_summary.json` on open; CSV in download expander.
 - **Validation**: `tests/unit/test_sqlite_wal_concurrency.py::test_list_recent_runs_includes_cost_and_steps`.
+
+### `content_quality_toc_stub` (2026-05-29)
+
+- **Failed path**: Citi Item 7A was marked `extracted` with ~98 chars of bare page-range TOC index text; train required-item recall looked 100% but semantically wrong. INTC cross-reference rows (`Pages 3–4`) were at risk of being misclassified as stubs.
+- **Resolution**:
+  1. Added `task2_sec/pipeline/content_quality.py`: `is_likely_toc_stub()` (bare page ranges) vs `is_cross_reference_index()` (`Pages N` cross-ref rows).
+  2. `eval_runner.py`: `toc_stub_count`, `required_quality_failures`, failure category `toc_stub_required_item`; required items must pass content-quality, not just exist.
+  3. Citi Item 7A re-anchored via alternate section title (`Market Risk\nOverview`) → ~146k chars real prose.
+- **Validation**: Train MSFT/INTC/C required items still pass; `pytest -m unit` green; spot-check in `docs/eval_spot_checks.md`.
+
+### `citi_mega_html_perf` (2026-05-29)
+
+- **Failed path**: Citi ~17 MB HTML filing took ~25s for Tier0 extraction — TOC parsing scanned the full document and repeated `soup.find(id=...)` lookups.
+- **Resolution** in `task2_sec/pipeline/segment.py`:
+  1. TOC scan limited to first ~900 KB for mega filings.
+  2. Pre-built `id_index` map; single pass for `starts_by_id`; cached `toc_zones` and section-name hits.
+  3. Precompiled `_SECTION_NAME_PATTERNS`.
+- **Validation**: Citi single-filing extract ~4–6s locally; train eval unchanged (`test_sec_manifest_train_split`).
+
+### `heldout_eval_expansion` (2026-05-29)
+
+- **Failed path**: Only BRK.B held-out — insufficient variant coverage for honest generalization claims (pre-iXBRL, second bank TOC, REIT, mining, 10-K/A).
+- **Resolution**:
+  1. Expanded `task2_sec/eval/manifest.json` to 11 entries (3 train + 8 held-out optional when cached).
+  2. Added `scripts/cache_heldout_filings.py`, `scripts/run_heldout_baseline.py` (`--with-llm` optional).
+  3. Manual spot-checks: `docs/eval_spot_checks.md`; variant matrix in `docs/analysis.md`.
+- **Validation**: `reports/heldout_baseline.json` — **5/8** `failure_category=ok`, **5/8** strict required pass (no toc_stub on required items). Train split untouched.
+
+### `jpm_toc_stub_gap` (2026-05-29)
+
+- **Failed path**: JPM (second large-bank TOC) held-out **2/4** required items — `toc_stub_required_item`. Citi heuristics partially generalize but not fully.
+- **Resolution**: Documented as known gap in README + `docs/analysis.md`; **not** ticker-specific prompt tuning (would overfit). Next step: generic bank-TOC zone detection, not JPM-only rules.
+- **Validation**: `heldout_baseline.json` records failure honestly; train KPI unchanged.
+
+### `aapl_pre_ixbrl_gap` (2026-05-29)
+
+- **Failed path**: AAPL FY2010 pre-iXBRL HTML held-out **2/4** — `missing_item_header` (legacy `<font>`/table layouts without standard Item headers).
+- **Resolution**: Listed under eval limitations; Tier0 path expected to miss without format-specific pre-processing.
+- **Validation**: Documented in variant matrix; no train manifest change.
+
+### `kscp_amendment_gap` (2026-05-29)
+
+- **Failed path**: KSCP 10-K/A amendment held-out **0/4** — Part III-only amendment lacks full Item 1–16 body.
+- **Resolution**: Honest `missing_item_header` outcome; UI/eval treat as expected edge case, not silent success.
+- **Validation**: `heldout_baseline.json`; spot-check notes in `docs/eval_spot_checks.md`.
+
+### `segment_classify_p2` (2026-05-29)
+
+- **Failed path**: Short ambiguous excerpts (150–300 chars) stayed `UNKNOWN` in Tier0 heuristic classifier — no structured label for UI quality badges.
+- **Resolution**:
+  1. `task2_sec/pipeline/segment_classify.py`: `SegmentClass` enum + optional Tier1 via `ENABLE_SEC_LLM_CLASSIFY`.
+  2. Prompt versioned as `prompts/v1_sec_segment_classify.txt` (loaded via `prompt_loader`).
+  3. Train KPI path remains Tier0-only; LLM classify opt-in for UI / `--with-llm` eval.
+- **Validation**: `test_prompt_loader_sec_segment_classify_template`; train eval $0/filing unchanged.
