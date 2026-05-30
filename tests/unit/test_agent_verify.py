@@ -95,11 +95,61 @@ def test_infer_max_steps_from_task_wording() -> None:
 
 
 @pytest.mark.unit
+def test_verify_task_outcome_rejects_failure_claim_in_result() -> None:
+    blocked = verify_task_outcome(
+        task="Navigate to SEC EDGAR and search for Berkshire Hathaway filings.",
+        url="https://www.sec.gov/cgi-bin/browse-edgar",
+        page_text="SEC EDGAR search page " * 5,
+        extracted_result=(
+            "Access to SEC EDGAR was blocked by rate limit. "
+            "Search for Berkshire Hathaway filings could not be completed"
+        ),
+        start_url="https://www.sec.gov/cgi-bin/browse-edgar",
+        task_type="navigate",
+        success_hints={"expect_body_contains": "Berkshire"},
+    )
+    assert not blocked.passed
+    assert "not completed" in blocked.reason.lower()
+
+
+@pytest.mark.unit
+def test_verify_task_outcome_brkb_requires_berkshire_on_page() -> None:
+    fail = verify_task_outcome(
+        task="Navigate to SEC EDGAR and search for Berkshire Hathaway filings.",
+        url="https://www.sec.gov/cgi-bin/browse-edgar",
+        page_text="EDGAR Company Search " * 5,
+        extracted_result="Found Berkshire Hathaway CIK 1067983",
+        start_url="https://www.sec.gov/cgi-bin/browse-edgar",
+        success_hints={"expect_body_contains": "Berkshire"},
+    )
+    assert not fail.passed
+
+    ok = verify_task_outcome(
+        task="Navigate to SEC EDGAR and search for Berkshire Hathaway filings.",
+        url="https://www.sec.gov/cgi-bin/browse-edgar?company=Berkshire",
+        page_text="Berkshire Hathaway Inc filings list " * 3,
+        extracted_result="Berkshire Hathaway filings visible",
+        start_url="https://www.sec.gov/cgi-bin/browse-edgar",
+        success_hints={"expect_body_contains": "Berkshire"},
+    )
+    assert ok.passed, ok.reason
+
+
+@pytest.mark.unit
+def test_result_indicates_task_failure() -> None:
+    from task1_agent.agent.verify import result_indicates_task_failure
+
+    assert result_indicates_task_failure("Search could not be completed due to rate limit")
+    assert not result_indicates_task_failure("Found Berkshire Hathaway filings")
+
+
+@pytest.mark.unit
 def test_task_implies_submit_generic_verbs() -> None:
     from task1_agent.agent.browser import _task_implies_submit
 
     assert _task_implies_submit("Search Wikipedia for 'Alan Turing'")
     assert _task_implies_submit("Find the top story on HN")
+    assert _task_implies_submit("Submit a POST form on httpbin.org/forms/post")
     assert not _task_implies_submit("Navigate to example.com and verify title")
     assert not _task_implies_submit("Help summarize the page")
 

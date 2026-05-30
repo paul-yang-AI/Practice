@@ -29,6 +29,8 @@
 - [x] `python scripts/run_eval.py --split train`
 - [x] `python scripts/run_agent_eval.py` → `reports/eval_train.csv` + `eval_summary.json`
 - [x] `python scripts/run_heldout_baseline.py` → `reports/heldout_baseline.json`
+- [x] `python scripts/run_heldout_baseline.py --with-llm` → `with_llm` section in baseline (6/8 ok; AAPL 3/4 required)
+- [x] `python scripts/run_agent_heldout_baseline.py` → `reports/agent_heldout_baseline.json`
 - [x] `python scripts/run_heldout_snapshot.py` → `reports/heldout_snapshot.json`
 - [x] `python scripts/demo_circuit_breaker.py` — budget demo
 - [x] `.env` not tracked (`git ls-files .env` empty)
@@ -38,7 +40,7 @@
 - [ ] **Browser Agent**: preset "Hacker News" → verify multi-step + extracted title
 - [ ] **SEC 10K → 基準集**: MSFT extract → **Required KPI 4/4** banner at top; INTC/Citi **3/3**
 - [ ] **SEC 10K → 基準集**: Citi → Extract → 數秒內完成；**1A/7/8 + 9A/9B 長正文**；Item 10–14 incorporated；front 索引列 honest missing
-- [ ] **Browser Agent → 泛化驗證**: held-out 4 任務 + 基線 badge（2/4 ok）
+- [ ] **Browser Agent → 泛化驗證**: held-out 4 任務 + 基線 badge（2/4 ok：forms + python_docs；SEC/DDG 已知 gap）
 - [ ] **SEC 10K → 泛化驗證**: JPM → **4/4 required**；extract runs
 - [ ] **SEC 10K**: JSON/Markdown 下載（metrics 下方，應即時無長等待）
 - [ ] **Eval → 基準 Train**: 載入存檔結果正常
@@ -92,4 +94,5 @@ streamlit run streamlit_app.py
 - **SEC train**: 3/3 filings `failure_category=ok` (MSFT 4/4, INTC/Citi 3/3 required); Tier0 $0.00/filing
 - **SEC held-out (Tier0, 8 cached)**: 6/8 ok; 6/8 strict required pass — see `reports/heldout_baseline.json`
 - **Agent train**: 5/5 success; silent_failure=0
-- **Agent held-out**: 2/4 ok — see `reports/agent_heldout_baseline.json`
+- **Agent held-out**: 2/4 ok（forms + python_docs）；SEC/DDG max_steps — **no silent failure** — see `reports/agent_heldout_baseline.json`
+- **SEC held-out + LLM**: 6/8 ok (same as Tier0); AAPL 2010 required 2/4→3/4 with LLM fallback

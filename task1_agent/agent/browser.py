@@ -22,15 +22,20 @@ from task1_agent.agent.verify import VerifyResult, verify_navigation, verify_ste
 
 logger = logging.getLogger(__name__)
 
-_SUBMIT_TASK_VERBS = ("search", "find", "query", "搜", "查")
+_SUBMIT_TASK_VERBS = ("search", "find", "query", "submit", "form", "fill", "post", "搜", "查")
 
 
 def _task_implies_submit(task: str) -> bool:
-    """Generic: typing in search/find tasks should submit (Enter), not site-specific."""
+    """Generic: typing in search/find/form tasks should submit, not site-specific."""
     if task_implies_search(task):
         return True
     t = task.lower()
     return any(w in t for w in _SUBMIT_TASK_VERBS)
+
+
+def _task_implies_form_submit(task: str) -> bool:
+    t = task.lower()
+    return any(w in t for w in ("submit", "form", "fill", "post"))
 
 
 _CONSENT_BUTTON_RE = re.compile(
@@ -64,6 +69,26 @@ def _try_dismiss_consent_banner(page: Page) -> None:
                 return
         except Exception:
             pass
+
+
+def _try_click_form_submit(page: Page) -> bool:
+    """Click a visible submit/send button (generic labels, not site-specific)."""
+    for role in ("button", "link"):
+        try:
+            locator = page.get_by_role(role, name=re.compile(r"submit|send|post|送出|提交", re.I))
+            if locator.count() > 0:
+                locator.first.click(timeout=3000)
+                return True
+        except Exception:
+            pass
+    try:
+        locator = page.locator("button[type='submit'], input[type='submit']")
+        if locator.count() > 0:
+            locator.first.click(timeout=3000)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 _LAUNCH_ARGS = ["--disable-dev-shm-usage", "--no-sandbox"]
@@ -239,8 +264,11 @@ class PlaywrightExecutor:
             self._do_type(page, selector, value, prefer_searchbox=task_implies_search(task))
             if value and _task_implies_submit(task):
                 page.wait_for_timeout(300)
-                page.keyboard.press("Enter")
-                action_desc = f"{action_desc}+Enter"
+                if _task_implies_form_submit(task) and _try_click_form_submit(page):
+                    action_desc = f"{action_desc}+Submit"
+                else:
+                    page.keyboard.press("Enter")
+                    action_desc = f"{action_desc}+Enter"
         elif action_type == "scroll":
             page.evaluate("window.scrollBy(0, 400)")
         elif action_type == "press_key":

@@ -436,3 +436,19 @@
   三 tab 共用 `agent_url_text` 導致提交錯 tab 的值。
 - **修正**：`sync_task_form_on_selection()` + 各 tab 讀 `{prefix}_task/_url`；GitHub train preset 對齊 `tasks.yaml`（`https://github.com`）。
 - **驗證**：`tests/unit/test_agent_ui.py`；Zeabur smoke held-out 切換 URL 一致。
+
+### `agent_silent_failure_and_forms_p0_p1`（2026-05-29）
+
+- **失敗路徑**：`brkb_heldout_nav` baseline 記 success 但 result 含 rate-limit / could not complete（silent failure）；
+  `v1_agent_plan.txt` 教 planner 卡住就 `done=true`；`forms_heldout` type loop 未 Submit。
+- **修正（P0）**：
+  - 改 agent_plan：卡住不得 done=true
+  - `verify.py`：`result_indicates_task_failure()` + `success_hints` on brkb（`expect_body_contains: Berkshire`）
+  - `eval_runner` navigate silent 檢查 failure 敘述與 body hints
+- **修正（P1）**：
+  - `browser.py`：form submit 動詞 → `_try_click_form_submit`；forms `success_hints` → `/post` + `custname`
+  - DDG held-out `expect_url_contains: q=`
+  - SEC `--with-llm` held-out 基線填入 `heldout_baseline.json`（AAPL 2/4→3/4 required，整體仍 6/8）
+  - README「自我維護」小節
+- **驗證**：agent held-out **2/4** ok（forms + python_docs）；brkb **max_steps**（誠實 fail）；DDG max_steps；
+  `test_agent_verify` 新增 failure-claim tests；SEC with_llm baseline 已寫入 reports。

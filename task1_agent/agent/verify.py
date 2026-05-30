@@ -25,7 +25,29 @@ _ERROR_INDICATORS = [
     "403 forbidden",
     "404 not found",
     "access denied",
+    "rate threshold",
+    "rate limit exceeded",
+    "request rate threshold",
 ]
+
+_FAILURE_RESULT_PHRASES = (
+    "could not be completed",
+    "could not complete",
+    "search could not",
+    "was blocked",
+    "blocked by",
+    "rate limit",
+    "rate threshold",
+    "request rate threshold",
+    "access was denied",
+    "unable to complete",
+    "unable to access",
+    "task could not",
+    "not completed",
+    "failed to complete",
+    "failed to access",
+    "failed to search",
+)
 
 _STOP_WORDS = frozenset(
     "the a an is are was were be been being have has had do does did "
@@ -169,6 +191,14 @@ def _term_on_page(term: str, page_text: str, url: str) -> bool:
     return False
 
 
+def result_indicates_task_failure(text: str) -> bool:
+    """Detect planner/extraction text that admits the task did not succeed."""
+    lower = text.lower()
+    if not lower.strip():
+        return False
+    return any(phrase in lower for phrase in _FAILURE_RESULT_PHRASES)
+
+
 def verify_task_outcome(
     *,
     task: str,
@@ -181,6 +211,13 @@ def verify_task_outcome(
 ) -> VerifyResult:
     """Terminal verification when the planner declares done=true."""
     hints = success_hints or {}
+
+    combined = f"{extracted_result}\n{page_text}"
+    if result_indicates_task_failure(combined):
+        return VerifyResult(
+            passed=False,
+            reason="Result or page text indicates task was not completed",
+        )
 
     if extracted_result.strip():
         ext = verify_extracted_result(extracted_result, page_text)

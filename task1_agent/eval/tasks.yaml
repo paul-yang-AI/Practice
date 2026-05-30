@@ -51,6 +51,8 @@ tasks:
     start_url: https://duckduckgo.com
     split: heldout
     target_failure: ACTION_NO_EFFECT
+    success_hints:
+      expect_url_contains: "q="
     notes: "Stress case — flaky in headless (consent/SERP); not in train KPI. UI preset kept for manual demo."
 
   - id: brkb_heldout_nav
@@ -59,6 +61,8 @@ tasks:
     description: "Navigate to SEC EDGAR and search for Berkshire Hathaway filings."
     start_url: https://www.sec.gov/cgi-bin/browse-edgar
     split: heldout
+    success_hints:
+      expect_body_contains: "Berkshire"
 
   - id: forms_heldout
     domain: httpbin.org
@@ -67,7 +71,8 @@ tasks:
     start_url: https://httpbin.org/forms/post
     split: heldout
     success_hints:
-      expect_body_contains: "form"
+      expect_url_contains: "/post"
+      expect_body_contains: "custname"
 
   - id: python_docs_heldout
     domain: docs.python.org

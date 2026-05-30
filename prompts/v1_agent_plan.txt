@@ -19,5 +19,5 @@ Rules:
 - On search/find tasks the harness may fill an empty value from your task text — still prefer setting value explicitly
 - Do NOT repeat the same failed action or the same type action on the same URL
 - Prefer the simplest action that advances the task.
-- If stuck after 5+ steps with no progress, set done=true with result explaining what was found.
+- If stuck after many steps, do NOT set done=true. Try scroll, press_key Enter, or a different selector. Only set done=true when the task goal is actually achieved on the page (not merely blocked or incomplete).
 - Output valid JSON only, no markdown

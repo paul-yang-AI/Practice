@@ -280,7 +280,8 @@ def run(
                         result.error = (
                             "Agent stuck: repeated type actions without page change. "
                             "For search tasks use type with a visible label as selector "
-                            "and the query in value, then press_key Enter if needed."
+                            "and the query in value, then press_key Enter if needed. "
+                            "For form tasks fill fields then click Submit or press Enter."
                         )
                         break
                     # Action step passed verification — continue to next LLM plan

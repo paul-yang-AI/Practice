@@ -483,7 +483,14 @@ def evaluate_agent_task(
     silent = 0
     if result.status == "success":
         task_type = task.get("task_type", "")
-        if task_type in ("extract", "search", "form"):
+        failure_text = result.extracted_result or ""
+        if result.steps:
+            failure_text = f"{failure_text}\n{result.steps[-1].page_text}"
+        from task1_agent.agent.verify import result_indicates_task_failure
+
+        if result_indicates_task_failure(failure_text):
+            silent = 1
+        elif task_type in ("extract", "search", "form"):
             if not (result.extracted_result or "").strip():
                 silent = 1
         elif task_type == "navigate":
@@ -491,6 +498,12 @@ def evaluate_agent_task(
             final_url = result.final_url or (result.steps[-1].url if result.steps else "")
             if expected_domain and expected_domain not in final_url:
                 silent = 1
+            hints = task.get("success_hints") or {}
+            body_need = hints.get("expect_body_contains")
+            if body_need and result.steps:
+                page_text = result.steps[-1].page_text or ""
+                if body_need.lower() not in page_text.lower():
+                    silent = 1
 
     failure_category = _classify_agent_failure(result.status, result.error)
     if silent:

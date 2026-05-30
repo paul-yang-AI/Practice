@@ -66,5 +66,5 @@ def verify_agent_heldout_summary(summary: dict[str, Any]) -> tuple[bool, str]:
     if total < 4:
         return False, f"heldout_tasks={total}, expected 4"
     if ok < 2:
-        return False, f"heldout_ok={ok}/{total}, expected >= 2/4 (honest baseline)"
+        return False, f"heldout_ok={ok}/{total}, expected >= 2/4 (forms + python_docs baseline)"
     return True, f"{ok}/{total} failure_category=ok"

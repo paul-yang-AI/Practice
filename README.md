@@ -198,10 +198,25 @@ whaleforce-coding-test/
 
 `recovery.py` 用 `FailureType` 列舉把失敗歸類，再查 `STRATEGY_TABLE` 取對應策略（如捲動、返回上一頁、延長等待），而不是一律重試。這是「確定性 SOP」的體現——邏輯寫死在程式碼裡，由 L1 測試守護。
 
+### 自我維護（Self-maintenance）— 不依賴寫死 selector
+
+題目要求 UI / selector 變動時能**偵測並動態調整**。本專案用三層通用機制（非 per-site 腳本）：
+
+| 機制 | 做法 | 對比寫死 selector |
+|------|------|-------------------|
+| **a11y 樹規劃** | 每步壓縮 accessibility tree 餵 LLM，用 visible label / role 規劃動作 | 不依賴 `#id`、`.class` 等易碎 CSS |
+| **多策略定位** | `click` / `type` 依序嘗試 text → role → placeholder → label | 單一 selector 失效時仍有 fallback |
+| **Recovery 策略表** | `ELEMENT_NOT_FOUND` → scroll → role_name → relax_selector → replan | blind retry 變成**有順序的 SOP** |
+| **終局驗證** | `success_hints` + 失敗敘述偵測（blocked / could not / rate limit） | 避免 planner 宣告 `done=true` 但任務未達成 |
+
+典型鏈路：`type` 找不到元素 → `FailureType.ELEMENT_NOT_FOUND` → scroll → `get_by_role("searchbox")` → 仍失敗則 replan。Form 任務額外：填完欄位後自動點 Submit / Enter（`_try_click_form_submit`），減少 type loop。
+
+**已知 gap（held-out 誠實基線）：** DuckDuckGo consent/SERP、SEC rate-limit 時仍可能 fail — 見 `reports/agent_heldout_baseline.json`。
+
 ### 評估任務（`task1_agent/eval/tasks.yaml`）
 
 共 **9** 個任務：5 個 train + **4** 個 heldout。Train：**5/5 成功，silent_failure=0**（per-filing regression contract）。  
-Held-out 基線（`reports/agent_heldout_baseline.json`）：**2/4 ok**（SEC EDGAR navigate、python docs ✅；DDG search、httpbin form 已知 gap）。
+Held-out 基線（`reports/agent_heldout_baseline.json`）：**2/4 ok**（httpbin form、python docs ✅；SEC EDGAR、DDG search 已知 gap — **無 silent failure**）。
 
 | 站點 | 任務類型 | 狀態 | 說明 |
 |---|---|---|---|
@@ -210,9 +225,9 @@ Held-out 基線（`reports/agent_heldout_baseline.json`）：**2/4 ok**（SEC ED
 | github.com | navigate | ✅ Train | LLM 規劃導覽到 `/python/cpython` |
 | httpbin.org | extract | ✅ Train | 抽取請求標頭 |
 | wikipedia.org | search | ✅ Train | 多步搜尋；`success_hints` URL 驗證 |
-| duckduckgo.com | search | ⚠️ Held-out | headless flaky（consent/SERP）；**不計 train KPI** |
-| sec.gov | navigate | ✅ Held-out | EDGAR 搜尋（2/4 基線通過） |
-| httpbin.org/forms | form | ⚠️ Held-out | POST 表單；type 卡死已知 gap |
+| duckduckgo.com | search | ⚠️ Held-out | headless flaky（consent/SERP）；`expect_url_contains: q=` |
+| sec.gov | navigate | ⚠️ Held-out | EDGAR rate-limit / max_steps；`success_hints` + 失敗敘述偵測 |
+| httpbin.org | form | ✅ Held-out | POST 表單；自動 Submit + `/post` 驗證 |
 | docs.python.org | navigate | ✅ Held-out | **frozen** held-out（勿為此任務調 prompt） |
 
 ---
