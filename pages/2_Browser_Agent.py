@@ -11,7 +11,14 @@ import streamlit as st
 import yaml
 
 from shared_harness import job_store
-from shared_harness.agent_ui import agent_heldout_badge, baseline_by_task_id, format_heldout_task_label
+from shared_harness.agent_ui import (
+    agent_heldout_badge,
+    baseline_by_task_id,
+    ensure_task_form_defaults,
+    format_heldout_task_label,
+    sort_heldout_tasks_for_ui,
+    sync_task_form_on_selection,
+)
 from task1_agent.agent.browser import PlaywrightExecutor
 from task1_agent.agent.loop import run as agent_run
 
@@ -52,8 +59,8 @@ _PRESETS = [
     },
     {
         "label": "🐍 GitHub — cpython 儲存庫",
-        "task": "Navigate to the Python cpython repository on GitHub and confirm the repo title.",
-        "url": "https://github.com/python/cpython",
+        "task": "Navigate to github.com/python/cpython and verify the repository title is visible.",
+        "url": "https://github.com",
         "category": "navigation",
     },
 ]
@@ -125,21 +132,23 @@ def _render_task_form(
     default_task: str,
     default_url: str,
 ) -> tuple[str, str]:
+    ensure_task_form_defaults(
+        st.session_state,
+        key_prefix=key_prefix,
+        default_task=default_task,
+        default_url=default_url,
+    )
     task = st.text_area(
         "任務描述",
-        value=default_task,
         placeholder="以自然語言描述代理應執行的操作…",
         height=80,
         key=f"{key_prefix}_task",
     )
     start_url = st.text_input(
         "起始 URL",
-        value=default_url,
         placeholder="https://example.com",
         key=f"{key_prefix}_url",
     )
-    st.session_state["agent_task_text"] = task
-    st.session_state["agent_url_text"] = start_url
 
     if start_url.strip() and "google.com" in start_url.strip().lower():
         st.warning(
@@ -170,8 +179,8 @@ def _render_run_buttons(key_prefix: str) -> None:
 
     if submit:
         _start_agent_run(
-            st.session_state.get("agent_task_text", ""),
-            st.session_state.get("agent_url_text", ""),
+            st.session_state.get(f"{key_prefix}_task", ""),
+            st.session_state.get(f"{key_prefix}_url", ""),
         )
 
     if stop:
@@ -428,12 +437,19 @@ with tab_train:
     preset_labels = [p["label"] for p in _PRESETS]
     preset_choice = st.selectbox("任務預設", preset_labels, index=0, key="train_preset")
     selected_preset = _PRESETS[preset_labels.index(preset_choice)]
-    if selected_preset["task"]:
-        t_default, u_default = selected_preset["task"], selected_preset["url"]
-    else:
-        t_default = st.session_state.get("agent_task_text", "")
-        u_default = st.session_state.get("agent_url_text", "")
-    _render_task_form(key_prefix="train", default_task=t_default, default_url=u_default)
+    sync_task_form_on_selection(
+        st.session_state,
+        key_prefix="train",
+        selection_id=selected_preset["label"],
+        task=selected_preset["task"],
+        start_url=selected_preset["url"],
+        overwrite_fields=bool(selected_preset["task"]),
+    )
+    _render_task_form(
+        key_prefix="train",
+        default_task=selected_preset["task"],
+        default_url=selected_preset["url"],
+    )
     _render_run_buttons("train")
 
 with tab_heldout:
@@ -450,13 +466,20 @@ with tab_heldout:
     elif _AGENT_HELDOUT_BASELINE.exists() is False:
         st.caption("執行 `python scripts/run_agent_heldout_baseline.py` 產生基線報告。")
 
-    heldout_tasks = _load_tasks_split("heldout")
+    heldout_tasks = sort_heldout_tasks_for_ui(_load_tasks_split("heldout"), baseline_map)
     if not heldout_tasks:
         st.info("tasks.yaml 中尚無 held-out 任務。")
     else:
         labels = [format_heldout_task_label(t, baseline_map.get(t["id"])) for t in heldout_tasks]
         choice = st.selectbox("選擇 held-out 任務", labels, index=0, key="heldout_select")
         selected = heldout_tasks[labels.index(choice)]
+        sync_task_form_on_selection(
+            st.session_state,
+            key_prefix="heldout",
+            selection_id=str(selected["id"]),
+            task=str(selected.get("description", "")),
+            start_url=str(selected.get("start_url", "")),
+        )
         row = baseline_map.get(selected["id"])
         if row:
             emoji, blabel = agent_heldout_badge(
@@ -469,8 +492,8 @@ with tab_heldout:
             st.info(selected["notes"])
         _render_task_form(
             key_prefix="heldout",
-            default_task=selected.get("description", ""),
-            default_url=selected.get("start_url", ""),
+            default_task=str(selected.get("description", "")),
+            default_url=str(selected.get("start_url", "")),
         )
         _render_run_buttons("heldout")
 
@@ -478,8 +501,8 @@ with tab_custom:
     st.markdown("任意自然語言任務 — **不計入** train/held-out KPI。")
     _render_task_form(
         key_prefix="custom",
-        default_task=st.session_state.get("agent_task_text", ""),
-        default_url=st.session_state.get("agent_url_text", ""),
+        default_task="",
+        default_url="",
     )
     _render_run_buttons("custom")
 

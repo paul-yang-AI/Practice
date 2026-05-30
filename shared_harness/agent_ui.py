@@ -50,3 +50,57 @@ def format_heldout_task_label(
 
 def baseline_by_task_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(r.get("task_id")): r for r in rows if r.get("task_id")}
+
+
+def sync_task_form_on_selection(
+    session: dict[str, Any],
+    *,
+    key_prefix: str,
+    selection_id: str,
+    task: str,
+    start_url: str,
+    overwrite_fields: bool = True,
+) -> bool:
+    """When a dropdown/preset selection changes, update widget session keys.
+
+    Returns True if fields were synced (selection changed).
+    """
+    active_key = f"{key_prefix}_active_id"
+    if session.get(active_key) == selection_id:
+        return False
+    session[active_key] = selection_id
+    if overwrite_fields:
+        session[f"{key_prefix}_task"] = task
+        session[f"{key_prefix}_url"] = start_url
+    return True
+
+
+def ensure_task_form_defaults(
+    session: dict[str, Any],
+    *,
+    key_prefix: str,
+    default_task: str,
+    default_url: str,
+) -> None:
+    """Seed widget keys on first visit only."""
+    task_key = f"{key_prefix}_task"
+    url_key = f"{key_prefix}_url"
+    if task_key not in session:
+        session[task_key] = default_task
+    if url_key not in session:
+        session[url_key] = default_url
+
+
+def sort_heldout_tasks_for_ui(
+    tasks: list[dict[str, Any]],
+    baseline_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Baseline-pass tasks first so default URL matches a known-good held-out case."""
+
+    def _rank(t: dict[str, Any]) -> tuple[int, str]:
+        row = baseline_map.get(str(t.get("id", "")))
+        if row and row.get("failure_category") == "ok" and not row.get("silent_failure"):
+            return (0, str(t.get("id", "")))
+        return (1, str(t.get("id", "")))
+
+    return sorted(tasks, key=_rank)
