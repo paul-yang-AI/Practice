@@ -265,8 +265,9 @@ Train KPI path remains **Tier0-only ($0/filing)**. LLM paths are opt-in via eval
 | Metric | MSFT | INTC | C |
 |--------|------|------|---|
 | Required recall | 4/4 | 4/4 | 3/3 |
-| Tier0 extracted | 8 | 17 | 12 |
+| Tier0 extracted | 8 | 17 | 8 |
 | Incorporated | 0 | 5 | 5 |
+| Missing (honest) | — | — | 3, 6, 16, … |
 | Token ratio P50 | 0.9875 | 0.9970 | 0.9819 |
 | Char coverage (full body) | 0.87 | 0.86 | 1.00 |
 | USD/filing | $0.00 | $0.00 | $0.00 |

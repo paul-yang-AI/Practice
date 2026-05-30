@@ -366,3 +366,14 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   4. SEC UI: arbiter **opt-in** (default off, matches eval Tier0); `st.status` step labels; custom tab `force_refresh=True`.
   5. Regenerated train gold (`scripts/regenerate_gold.py`).
 - **Validation**: `test_upgrade_cross_ref_stub_at_document_end_to_earlier_section_name`, `test_topic_page_index_block_detects_bare_page_number_lists`; INTC 1A/7/8 → 100k+ char prose (Item 1 remains cross-ref — no in-body Item 1 header in that filing format); `pytest -m unit` 123 green; train eval + Citi 1A/7/8 ok.
+
+### `bank_mega_toc_index_scrub` (2026-05-29)
+
+- **Failed path**: Citi front mega-TOC (numbered rows + bare page ranges, no `Item` prefix) produced **fake extracted** rows for Items 1/4/9 and blocked **9A/9B** (real body uses `DISCLOSURE CONTROLS AND PROCEDURES` / `OTHER INFORMATION` headings). `_find_toc_zones` missed this format; supplement re-added index stubs via 600-char anchor preview.
+- **Resolution** (generic — no ticker branches):
+  1. `_find_front_index_zone` + split scrub vs section_name zones (`_scrub_toc_zones` vs tight `content_start`).
+  2. `_scrub_index_stub_segments` + supplement rewrite: drop front index stubs; keep EOF cross-ref + incorporation index rows.
+  3. Section patterns: `Disclosure Controls and Procedures` → 9A, `Market for Registrant…` → 5, `Other Information` → 9B; 220-char anchor preview for index detection.
+  4. `_dedupe_segments_by_item`, `_is_incorporation_index_stub` for Part III `*` footnotes.
+  5. `item_heuristics.py`: `not_applicable`, note cross-ref warnings in `validate.py`.
+- **Validation**: Citi **9A (~6k) / 9B (~53k)** extracted; required **1A/7/8** unchanged; Items 10–14 incorporated; front stubs → honest `missing`; `149` pytest green; gold regenerated.

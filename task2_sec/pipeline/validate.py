@@ -5,6 +5,7 @@ from __future__ import annotations
 from shared_harness.schemas.sec_schema import STANDARD_ITEMS, ItemRecord, ItemStatus
 from task2_sec.pipeline.arbiter import arbitrate_boundary
 from task2_sec.pipeline.incorporation import detect_incorporation
+from task2_sec.pipeline.item_heuristics import detect_not_applicable, detect_note_cross_reference
 from task2_sec.pipeline.metrics import evaluate_segment_metrics
 from task2_sec.pipeline.segment import SegmentResult, assert_span_integrity
 
@@ -30,6 +31,41 @@ def validate_segment(
 ) -> ItemRecord:
     text = body[seg.start : seg.end]
     metrics = evaluate_segment_metrics(body, seg.start, seg.end, seg.item_id)
+
+    na, na_note = detect_not_applicable(text)
+    if na:
+        warnings = list(metrics.warnings)
+        if na_note:
+            warnings.append(na_note)
+        return ItemRecord(
+            item_id=seg.item_id,
+            part=_part_for_item(seg.item_id),
+            status=ItemStatus.NOT_APPLICABLE,
+            text=text,
+            confidence=0.95,
+            segment_method=seg.method.value,
+            warnings=warnings,
+            start=seg.start,
+            end=seg.end,
+        )
+
+    note_xref, xref_note = detect_note_cross_reference(text)
+    if note_xref:
+        warnings = list(metrics.warnings)
+        if xref_note:
+            warnings.append(xref_note)
+        assert_span_integrity(body, seg.start, seg.end, text)
+        return ItemRecord(
+            item_id=seg.item_id,
+            part=_part_for_item(seg.item_id),
+            status=ItemStatus.EXTRACTED,
+            text=text,
+            confidence=0.9,
+            segment_method=seg.method.value,
+            warnings=warnings,
+            start=seg.start,
+            end=seg.end,
+        )
 
     incorporated, note = detect_incorporation(text)
     if incorporated:

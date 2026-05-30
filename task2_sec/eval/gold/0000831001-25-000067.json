@@ -9,11 +9,9 @@
   ],
   "items": {
     "1": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 79,
-      "start": 4186,
-      "end": 4265
+      "status": "missing",
+      "confidence": 0.0,
+      "text_len": 0
     },
     "1A": {
       "status": "extracted",
@@ -23,25 +21,19 @@
       "end": 411483
     },
     "1B": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 47,
-      "start": 4265,
-      "end": 4312
+      "status": "missing",
+      "confidence": 0.0,
+      "text_len": 0
     },
     "1C": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 34,
-      "start": 4312,
-      "end": 4346
+      "status": "missing",
+      "confidence": 0.0,
+      "text_len": 0
     },
     "2": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 115,
-      "start": 4346,
-      "end": 4461
+      "status": "missing",
+      "confidence": 0.0,
+      "text_len": 0
     },
     "3": {
       "status": "missing",
@@ -49,16 +41,16 @@
       "text_len": 0
     },
     "4": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 467,
-      "start": 4461,
-      "end": 4928
-    },
-    "5": {
       "status": "missing",
       "confidence": 0.0,
       "text_len": 0
+    },
+    "5": {
+      "status": "extracted",
+      "confidence": 0.95,
+      "text_len": 685,
+      "start": 4514,
+      "end": 5199
     },
     "6": {
       "status": "missing",
@@ -75,33 +67,35 @@
     "7A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 146091,
+      "text_len": 140159,
       "start": 411483,
-      "end": 557574
+      "end": 551642
     },
     "8": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 696594,
+      "text_len": 644022,
       "start": 557574,
-      "end": 1254168
+      "end": 1201596
     },
     "9": {
-      "status": "extracted",
-      "confidence": 0.95,
-      "text_len": 271,
-      "start": 4928,
-      "end": 5199
+      "status": "missing",
+      "confidence": 0.0,
+      "text_len": 0
     },
     "9A": {
-      "status": "missing",
-      "confidence": 0.0,
-      "text_len": 0
+      "status": "extracted",
+      "confidence": 0.95,
+      "text_len": 5932,
+      "start": 551642,
+      "end": 557574
     },
     "9B": {
-      "status": "missing",
-      "confidence": 0.0,
-      "text_len": 0
+      "status": "extracted",
+      "confidence": 0.95,
+      "text_len": 52572,
+      "start": 1201596,
+      "end": 1254168
     },
     "10": {
       "status": "incorporated_by_reference",

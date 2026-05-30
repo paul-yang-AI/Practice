@@ -147,3 +147,56 @@ def test_pick_best_start_skips_toc_when_content_header_exists() -> None:
     text = body[seg_10.start : seg_10.end]
     assert "Director biographies" in text
     assert "50-60" not in text[:120]
+
+
+@pytest.mark.unit
+def test_find_front_index_zone_detects_bank_mega_toc() -> None:
+    from task2_sec.pipeline.segment import _find_front_index_zone
+
+    head = (
+        "Business\n4–32\n\n1A.\n\nRisk Factors\n50–64\n\n"
+        "5.\n\nMarket for Registrant's Common Equity\n146–147\n\n"
+        "6.\n\nReserved\n\n7.\n\nManagement's Discussion\n7–32\n"
+    )
+    zone = _find_front_index_zone(head + ("padding\n" * 200))
+    assert zone is not None
+    assert zone[0] == 0
+    assert zone[1] < 8000
+
+
+@pytest.mark.unit
+def test_disclosure_controls_pattern_supplements_9a_when_item9_is_index() -> None:
+    """Generic bank-style filing: Item 9 index row must not block real Item 9A prose."""
+    html = """
+    <html><body>
+    <div>
+    9.
+    Changes in and Disagreements with Accountants
+    Not Applicable
+    9A.
+    Controls and Procedures
+    135–136
+    9B.
+    Other Information
+    317
+    </div>
+    <p>{}</p>
+    <h2>DISCLOSURE CONTROLS AND PROCEDURES</h2>
+    <p>{}</p>
+    <h2>OTHER INFORMATION</h2>
+    <p>{}</p>
+    </body></html>
+    """.format(
+        "filler " * 4000,
+        "Management evaluated disclosure controls and procedures effectiveness. " * 40,
+        "Insider trading policies govern officer transactions. " * 40,
+    )
+    segmenter = Segmenter()
+    body, segments = segmenter.segment(html, use_llm_fallback=False)
+    seg_9a = next(s for s in segments if s.item_id == "9A")
+    text_9a = body[seg_9a.start : seg_9a.end]
+    assert "135" not in text_9a or "evaluated disclosure controls" in text_9a
+    seg_9b = next(s for s in segments if s.item_id == "9B")
+    text_9b = body[seg_9b.start : seg_9b.end]
+    assert "Insider trading policies" in text_9b
+

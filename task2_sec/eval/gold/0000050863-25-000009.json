@@ -11,9 +11,9 @@
     "1": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 177,
-      "start": 468329,
-      "end": 468506
+      "text_len": 186,
+      "start": 468311,
+      "end": 468497
     },
     "1A": {
       "status": "extracted",
@@ -25,9 +25,9 @@
     "1B": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 74,
-      "start": 468506,
-      "end": 468580
+      "text_len": 75,
+      "start": 468497,
+      "end": 468572
     },
     "1C": {
       "status": "extracted",
@@ -39,8 +39,8 @@
     "2": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 71,
-      "start": 468580,
+      "text_len": 79,
+      "start": 468572,
       "end": 468651
     },
     "3": {
@@ -53,15 +53,15 @@
     "4": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 39,
+      "text_len": 47,
       "start": 468651,
-      "end": 468690
+      "end": 468698
     },
     "5": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 135,
-      "start": 468690,
+      "text_len": 127,
+      "start": 468698,
       "end": 468825
     },
     "6": {
@@ -95,29 +95,29 @@
     "9": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 134,
+      "text_len": 143,
       "start": 469227,
-      "end": 469361
+      "end": 469370
     },
     "9A": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 17261,
+      "text_len": 17243,
       "start": 451068,
-      "end": 468329
+      "end": 468311
     },
     "9B": {
       "status": "extracted",
       "confidence": 0.95,
-      "text_len": 216,
-      "start": 469361,
-      "end": 469577
+      "text_len": 198,
+      "start": 469370,
+      "end": 469568
     },
     "10": {
       "status": "incorporated_by_reference",
       "confidence": 0.95,
       "text_len": 0,
-      "start": 469577,
+      "start": 469568,
       "end": 469655
     },
     "11": {
@@ -139,13 +139,13 @@
       "confidence": 0.95,
       "text_len": 0,
       "start": 469801,
-      "end": 469889
+      "end": 469880
     },
     "14": {
       "status": "incorporated_by_reference",
       "confidence": 0.95,
       "text_len": 0,
-      "start": 469889,
+      "start": 469880,
       "end": 469951
     },
     "15": {

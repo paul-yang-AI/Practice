@@ -53,3 +53,8 @@ def test_assess_required_item_ok_for_real_content() -> None:
 @pytest.mark.unit
 def test_assess_incorporated() -> None:
     assert assess_required_item("10", None, "incorporated_by_reference") == "incorporated"
+
+
+@pytest.mark.unit
+def test_assess_not_applicable() -> None:
+    assert assess_required_item("4", "Mine Safety Disclosures\nNot Applicable", "not_applicable") == "ok"

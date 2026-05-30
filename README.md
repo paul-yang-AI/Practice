@@ -259,7 +259,8 @@ Held-out 分頁的 badge 來自 `reports/heldout_baseline.json`；**JPM / AAPL /
 
 - **以引用併入（incorporated by reference）**：很多公司的 Item 10–14 會寫「內容見委託書（Proxy/DEF 14A）」。管線偵測到後**不會編造內文**，而是標記狀態並（在已知 CIK 時）自動連結到原文。
 - **交叉引用索引（cross-reference index）**：像 INTC 這類 cross-reference 10-K 會在索引表列出 `Pages N`。Tier0 會以 **bidirectional section_name upgrade** 嘗試定位真實正文（1A / 7 / 8 等）；若該 Item 在整份 HTML 中**完全沒有章節錨點**（如 INTC Item 1 僅索引列），仍誠實標為 cross-ref，不編造內文。
-- **銀行 TOC 索引列（裸頁碼）**：像 Citi 這類 filing 在開頭有一大段「Item 標題 + 裸頁碼範圍（如 70–129, 174–178）」的目錄列，內文卻只用章節標題（如 `MARKET RISK`、`Report of Independent…`）而不再寫 `Item 7A`。管線會：(1) 辨識裸頁碼索引列；(2) 動態偵測 TOC 區塊；(3) 捨棄 TOC stub 並改用章節名 / 替代標題錨點（如 `Market Risk\nOverview` → Item 7A）定位真實內文。
+- **銀行 TOC 索引列（裸頁碼）**：像 Citi 這類 filing 在開頭有一大段「Item 標題 + 裸頁碼範圍（如 70–129, 174–178）」的目錄列，內文卻只用章節標題（如 `MARKET RISK`、`DISCLOSURE CONTROLS AND PROCEDURES`）而不再寫 `Item 7A` / `Item 9A`。管線會：(1) 辨識裸頁碼索引列與 **front mega-TOC**（`5.` / `6.` 編號列）；(2) 動態偵測 TOC 區塊（scrub 用）並以較窄的 **content_start** 保留 Item 15 等真實章節；(3) 捨棄 front index stub、補上 sibling items（如 9A/9B）；(4) 保留 Part III 索引列上的 **incorporated by reference** 偵測（`*` / `**` footnote）。
+- **Not applicable**：短段且僅含 `Not Applicable` / `[Reserved]`（無頁碼索引）→ `not_applicable` 狀態。
 
 ### 範例 filing
 
@@ -267,7 +268,7 @@ Held-out 分頁的 badge 來自 `reports/heldout_baseline.json`；**JPM / AAPL /
 |---|---|---|
 | **MSFT** | `0000950170-24-087843` | 6.8 MB iXBRL、標準 TOC，22 個 Item 全數抽取，$0.00 |
 | **INTC** | `0000050863-25-000009` | 重度 iXBRL + cross-ref；**1A/7/8 → section_name 真實正文**；Item 1 可能仍 cross-ref |
-| **Citi (C)** | `0000831001-25-000067` | 大型銀行 TOC + incorporated by reference；Item 7/7A/8 需跳過 TOC 索引列，7A 走 `Market Risk\nOverview` 替代標題 |
+| **Citi (C)** | `0000831001-25-000067` | 大型銀行 front mega-TOC + incorporated；**1A/7/7A/8/9A/9B** 真實正文；front 索引 stub 誠實 `missing`；Item 10–14 incorporated |
 | **BRK.B** | `0000950170-25-025210` | Heldout，K-1 式 TOC 變體；本地快照 4/4 必需項、21 項抽取 |
 
 **反過度擬合措施**：管線程式碼裡**沒有任何按 ticker / accession 的特判分支**；覆蓋率以「完整正規化 body」為分母計算；gold 邊界由管線輸出再生成（這點是循環的，已在 `docs/analysis.md` 中如實說明）。

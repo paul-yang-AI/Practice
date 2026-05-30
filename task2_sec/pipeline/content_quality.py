@@ -40,6 +40,8 @@ def assess_required_item(item_id: str, text: str | None, status_value: str) -> s
     """Return quality label: ok | toc_stub | cross_ref | missing | incorporated | low_confidence."""
     if status_value == "missing":
         return "missing"
+    if status_value == "not_applicable":
+        return "ok"
     if status_value == "incorporated_by_reference":
         return "incorporated"
     if status_value == "low_confidence":

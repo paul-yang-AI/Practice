@@ -12,6 +12,7 @@ from pydantic import BaseModel
 warnings.filterwarnings("ignore", category=UserWarning, message=".*XML.*")
 
 from task2_sec.pipeline.normalize import normalize
+from task2_sec.pipeline.incorporation import detect_incorporation
 
 # Line-start item headers only (avoids inline "see Item 1 above").
 # Longer ids first so "Item 10" is not captured as Item "1".
@@ -33,13 +34,17 @@ _SECTION_NAME_MAP: list[tuple[str, str]] = [
     (_LINE + r"\s*Properties\s*\n", "2"),
     (_LINE + r"\s*Legal\s+Proceedings\s*\n", "3"),
     (_LINE + r"\s*Mine\s+Safety\s+Disclosures?\s*\n", "4"),
+    (_LINE + r"\s*Market\s+for\s+Registrant.s\s+Common\s+Equity\b[^\n]*\n", "5"),
     (_LINE + r"\s*Management.s\s+Discussion\s+and\s+Analysis\b[^\n]*\n", "7"),
     (_LINE + r"\s*Quantitative\s+and\s+Qualitative\s+Disclosures?\s+About\s+Market\s+Risk\s*\n", "7A"),
     (_LINE + r"\s*Market\s+Risk\s*\n\s*Overview\b", "7A"),
     (_LINE + r"\s*Financial\s+Statements\s+and\s+Supplementary\s+Data\s*\n", "8"),
     (_LINE + r"\s*Report\s+of\s+Independent\s+Registered\s+Public\s+Accounting\s+Firm\b[^\n]*\n", "8"),
     (_LINE + r"\s*Changes\s+in\s+and\s+Disagreements\s+[Ww]ith\s+Accountants\b[^\n]*\n", "9"),
+    # Banks often title Item 9A "Disclosure Controls and Procedures" (not bare "Controls…").
+    (_LINE + r"\s*Disclosure\s+Controls\s+and\s+Procedures\s*\n", "9A"),
     (_LINE + r"\s*Controls\s+and\s+Procedures\s*\n", "9A"),
+    (_LINE + r"\s*Other\s+Information\s*\n", "9B"),
     (_LINE + r"\s*Directors[,\s]+Executive\s+Officers\b[^\n]*\n", "10"),
     (_LINE + r"\s*Executive\s+Compensation\s*\n", "11"),
     (_LINE + r"\s*Security\s+Ownership\b[^\n]*\n", "12"),
@@ -80,6 +85,13 @@ _ITEM_INDEX_LINE_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+# Bank mega-TOC rows: "5.\n\nMarket for…\n146–147" without "Item" on the same line.
+_ITEM_DOT_LINE_RE = re.compile(r"(?m)^\s*\d+[A-Z]?\.\s*$")
+_PAGE_RANGE_LINE_RE = re.compile(
+    r"(?m)^\s*\d+\s*[–\-]\s*\d+(?:\s*,\s*\d+\s*[–\-]\s*\d+)*\s*$"
+)
+_INCORPORATION_PREVIEW_CHARS = 200
+_EOF_CLUSTER_FRAC = 0.85
 _SHORT_SEGMENT_CHARS = 300  # default; use _scale_short_segment_chars(body_len)
 _TOC_CLUSTER_GAP = 8000
 # Section titles that often appear in tables/TOC — require a unique content-zone match.
@@ -145,6 +157,88 @@ def _in_toc_zone(pos: int, zones: list[tuple[int, int]]) -> bool:
     return any(lo <= pos < hi for lo, hi in zones)
 
 
+def _find_front_index_zone(body: str) -> tuple[int, int] | None:
+    """Detect bank-style front mega-TOC (numbered rows + bare page ranges, no 'Item' prefix)."""
+    body_len = len(body)
+    scan = min(body_len, 6500)
+    if scan < 800:
+        return None
+    head = body[:scan]
+    item_dots = len(_ITEM_DOT_LINE_RE.findall(head))
+    page_ranges = len(_PAGE_RANGE_LINE_RE.findall(head))
+    if item_dots < 4 or page_ranges < 4:
+        return None
+    dot_ends = [m.end() for m in _ITEM_DOT_LINE_RE.finditer(head)]
+    if not dot_ends:
+        return None
+    cluster_end = min(body_len, max(dot_ends) + 200)
+    return (0, cluster_end)
+
+
+def _scrub_toc_zones(body: str) -> list[tuple[int, int]]:
+    """TOC zones for index-stub removal (front mega-TOC + Item-line clusters)."""
+    zones = _find_toc_zones(body)
+    front = _find_front_index_zone(body)
+    if front is None:
+        return zones
+    if zones and zones[0][0] == 0:
+        return [(0, max(zones[0][1], front[1]))] + zones[1:]
+    return [front] + zones
+
+
+def _effective_toc_zones(body: str) -> list[tuple[int, int]]:
+    """Alias for scrub/supplement stub detection."""
+    return _scrub_toc_zones(body)
+
+
+def _is_incorporation_index_stub(body: str, seg: SegmentResult) -> bool:
+    """Part III index rows with * / ** footnotes — keep for incorporation detection."""
+    text = body[seg.start : seg.end]
+    incorporated, _ = detect_incorporation(text)
+    return incorporated
+
+
+def _is_eof_index_cluster(body: str, pos: int) -> bool:
+    return pos >= len(body) * _EOF_CLUSTER_FRAC
+
+
+def _is_mega_toc_segment(text: str) -> bool:
+    """One segment spanning multiple numbered Item rows with page citations."""
+    if len(text) > 2500:
+        return False
+    item_dots = len(_ITEM_DOT_LINE_RE.findall(text))
+    if item_dots >= 3 and _PAGE_REF_RE.search(text):
+        return True
+    return item_dots >= 2 and len(_PAGE_REF_RE.findall(text)) >= 2
+
+
+def _is_index_stub_segment(
+    body: str,
+    seg: SegmentResult,
+    toc_zones: list[tuple[int, int]],
+) -> bool:
+    """True when a segment is a TOC/index row, not real section prose."""
+    text = body[seg.start : seg.end].strip()
+    short_limit = _scale_short_segment_chars(len(body))
+    if _is_topic_page_index_block(text):
+        return True
+    if _is_mega_toc_segment(text):
+        return True
+    if len(text) < short_limit and is_page_reference_text(text):
+        return True
+    if (
+        len(text) < 600
+        and _ITEM_DOT_LINE_RE.search(text)
+        and _PAGE_REF_RE.search(text)
+        and len(_strip_page_citation_text(text)) < 120
+    ):
+        return True
+    if _in_toc_zone(seg.start, toc_zones) and len(text) < short_limit:
+        if is_page_reference_text(text) or _is_topic_page_index_block(text):
+            return True
+    return False
+
+
 def _anchor_preview(body: str, start: int, *, window_chars: int = 600) -> str:
     return body[start : min(len(body), start + window_chars)].strip()
 
@@ -184,6 +278,11 @@ def _is_usable_content_anchor(
     toc_zones: list[tuple[int, int]],
 ) -> bool:
     """True when a section_name hit looks like real prose, not another index row."""
+    preview = _anchor_preview(body, anchor.start, window_chars=220)
+    if _is_topic_page_index_block(preview):
+        return False
+    if is_page_reference_text(preview) or _is_mega_toc_segment(preview):
+        return False
     if _anchor_quality_key(body, anchor.start, toc_zones)[0] == 1:
         return False
     return True
@@ -303,7 +402,7 @@ def _scrub_toc_stub_segments(
     """
     name_by_id = name_by_id or {}
     if toc_zones is None:
-        toc_zones = _find_toc_zones(body)
+        toc_zones = _effective_toc_zones(body)
     short_limit = _scale_short_segment_chars(len(body))
     kept: list[SegmentResult] = []
     for seg in segments:
@@ -316,9 +415,12 @@ def _scrub_toc_stub_segments(
             kept.append(seg)
             continue
         is_cross_ref = bool(re.search(r"\bPages?\s+\d", text, re.IGNORECASE))
+        if alt.start == seg.start:
+            if is_page_reference_text(text) or _is_topic_page_index_block(text):
+                continue
+            kept.append(seg)
+            continue
         if is_cross_ref:
-            if alt.start == seg.start:
-                kept.append(seg)
             continue
         if alt.start <= seg.start:
             kept.append(seg)
@@ -330,6 +432,75 @@ def _scrub_toc_stub_segments(
     for i, seg in enumerate(kept):
         seg.end = kept[i + 1].start if i + 1 < len(kept) else body_len
     return kept
+
+
+def _scrub_index_stub_segments(
+    body: str,
+    segments: list[SegmentResult],
+    *,
+    name_by_id: dict[str, SegmentResult] | None = None,
+    toc_zones: list[tuple[int, int]] | None = None,
+) -> list[SegmentResult]:
+    """Drop front/duplicate index stubs; keep EOF cross-ref rows when no prose anchor exists."""
+    name_by_id = name_by_id or {}
+    if toc_zones is None:
+        toc_zones = _effective_toc_zones(body)
+    front = _find_front_index_zone(body)
+
+    def _in_front_zone(pos: int) -> bool:
+        return front is not None and front[0] <= pos < front[1]
+
+    kept: list[SegmentResult] = []
+    for seg in segments:
+        if _is_incorporation_index_stub(body, seg):
+            kept.append(seg)
+            continue
+        if not _is_index_stub_segment(body, seg, toc_zones):
+            kept.append(seg)
+            continue
+        alt = name_by_id.get(seg.item_id)
+        has_usable_alt = (
+            alt is not None
+            and alt.start != seg.start
+            and _is_usable_content_anchor(body, alt, toc_zones)
+        )
+        if has_usable_alt:
+            continue
+        if _in_front_zone(seg.start):
+            continue
+        if _is_eof_index_cluster(body, seg.start):
+            kept.append(seg)
+            continue
+        if _in_toc_zone(seg.start, toc_zones):
+            continue
+        kept.append(seg)
+
+    if len(kept) == len(segments):
+        return segments
+    kept = sorted(kept, key=lambda s: s.start)
+    body_len = len(body)
+    for i, seg in enumerate(kept):
+        seg.end = kept[i + 1].start if i + 1 < len(kept) else body_len
+    return kept
+
+
+def _dedupe_segments_by_item(
+    body: str,
+    segments: list[SegmentResult],
+    toc_zones: list[tuple[int, int]],
+) -> list[SegmentResult]:
+    """Keep one segment per item_id — best prose anchor wins."""
+    best: dict[str, SegmentResult] = {}
+    for seg in segments:
+        prev = best.get(seg.item_id)
+        if prev is None:
+            best[seg.item_id] = seg
+            continue
+        if _anchor_quality_key(body, seg.start, toc_zones) < _anchor_quality_key(
+            body, prev.start, toc_zones
+        ):
+            best[seg.item_id] = seg
+    return sorted(best.values(), key=lambda s: s.start)
 
 
 def assert_span_integrity(body: str, start: int, end: int, text: str) -> None:
@@ -355,7 +526,8 @@ class Segmenter:
         use_llm_fallback: bool = True,
     ) -> tuple[str, list[SegmentResult]]:
         body = normalize(html)
-        toc_zones = _find_toc_zones(body)
+        toc_zones = _scrub_toc_zones(body)
+        front_zone = _find_front_index_zone(body)
         starts_by_id: dict[str, list[int]] = {}
         for m in HEADER_RE.finditer(body):
             item_id = _normalize_item_id(m.group("id"))
@@ -366,7 +538,9 @@ class Segmenter:
         def get_name_hits() -> list[SegmentResult]:
             nonlocal name_hits_cache
             if name_hits_cache is None:
-                name_hits_cache = self._segment_from_section_names(body, toc_zones=toc_zones)
+                name_hits_cache = self._segment_from_section_names(
+                    body, toc_zones=_find_toc_zones(body), front_zone=front_zone
+                )
             return name_hits_cache
 
         def name_by_id_best() -> dict[str, SegmentResult]:
@@ -394,7 +568,15 @@ class Segmenter:
         merged = _scrub_toc_stub_segments(
             body, merged, name_by_id=best_names, toc_zones=toc_zones
         )
-        merged = self._supplement_from_section_names(body, merged, name_by_id=best_names)
+        merged = _scrub_index_stub_segments(
+            body, merged, name_by_id=best_names, toc_zones=toc_zones
+        )
+        merged = self._supplement_from_section_names(
+            body, merged, name_by_id=best_names, toc_zones=toc_zones
+        )
+        merged = _dedupe_segments_by_item(body, merged, toc_zones)
+        for i, seg in enumerate(merged):
+            seg.end = merged[i + 1].start if i + 1 < len(merged) else len(body)
 
         found_ids = {s.item_id for s in merged}
         missing_count = sum(1 for iid in STANDARD_10K_ITEMS if iid not in found_ids)
@@ -435,7 +617,7 @@ class Segmenter:
     ) -> list[SegmentResult]:
         """Replace page-citation stubs with section_name prose anchors when available."""
         if toc_zones is None:
-            toc_zones = _find_toc_zones(body)
+            toc_zones = _effective_toc_zones(body)
         if name_by_id is None:
             name_hits = self._segment_from_section_names(body, toc_zones=toc_zones)
             name_by_id = _best_section_name_by_id(body, name_hits, toc_zones)
@@ -479,23 +661,49 @@ class Segmenter:
         segments: list[SegmentResult],
         *,
         name_by_id: dict[str, SegmentResult] | None = None,
+        toc_zones: list[tuple[int, int]] | None = None,
     ) -> list[SegmentResult]:
         """Add section_name hits for items removed as TOC stubs or never found."""
-        found = {s.item_id for s in segments}
+        if toc_zones is None:
+            toc_zones = _effective_toc_zones(body)
         if name_by_id is None:
-            name_by_id = {}
-            for hit in self._segment_from_section_names(body):
-                prev = name_by_id.get(hit.item_id)
-                if prev is None or hit.start > prev.start:
-                    name_by_id[hit.item_id] = hit
+            name_hits = self._segment_from_section_names(body, toc_zones=toc_zones)
+            name_by_id = _best_section_name_by_id(body, name_hits, toc_zones)
+
+        def _is_good(seg: SegmentResult) -> bool:
+            return not _is_index_stub_segment(body, seg, toc_zones)
+
+        def _keep_after_stub_scrub(seg: SegmentResult) -> bool:
+            if _is_incorporation_index_stub(body, seg):
+                return True
+            if _is_good(seg):
+                return True
+            if _is_eof_index_cluster(body, seg.start):
+                return True
+            alt = name_by_id.get(seg.item_id)
+            if (
+                alt is not None
+                and alt.start != seg.start
+                and _is_usable_content_anchor(body, alt, toc_zones)
+            ):
+                return False
+            return False
+
+        found_good = {s.item_id for s in segments if _is_good(s)}
+        original = list(segments)
+
+        segments = [s for s in segments if _keep_after_stub_scrub(s)]
 
         added = False
         for item_id, hit in name_by_id.items():
-            if item_id not in found:
-                segments.append(hit)
-                added = True
+            if item_id in found_good:
+                continue
+            if not _is_usable_content_anchor(body, hit, toc_zones):
+                continue
+            segments.append(hit)
+            added = True
 
-        if not added:
+        if not added and segments == original:
             return segments
         segments = sorted(segments, key=lambda s: s.start)
         body_len = len(body)
@@ -636,12 +844,19 @@ class Segmenter:
         body: str,
         *,
         toc_zones: list[tuple[int, int]] | None = None,
+        front_zone: tuple[int, int] | None = None,
     ) -> list[SegmentResult]:
         """Fallback: detect sections by their standard 10-K section titles."""
         if toc_zones is None:
             toc_zones = _find_toc_zones(body)
-        toc_at_front = bool(toc_zones and toc_zones[0][0] == 0)
-        content_start = _content_start_for_names(len(body), toc_zones)
+        if front_zone is None:
+            front_zone = _find_front_index_zone(body)
+        toc_at_front = bool(front_zone and front_zone[0] == 0)
+        content_start = (
+            min(front_zone[1], max(5000, len(body) // 20))
+            if front_zone
+            else _content_start_for_names(len(body), toc_zones)
+        )
         hits: list[SegmentResult] = []
         for pattern, item_id in _SECTION_NAME_PATTERNS:
             matches = list(pattern.finditer(body))
@@ -650,8 +865,19 @@ class Segmenter:
             content_matches = [
                 m
                 for m in matches
-                if not _in_toc_zone(m.start(), toc_zones)
-                and (not toc_at_front or m.start() > content_start)
+                if not (
+                    _in_toc_zone(m.start(), toc_zones)
+                    and _is_topic_page_index_block(
+                        _anchor_preview(body, m.start(), window_chars=220)
+                    )
+                )
+                and (
+                    not toc_at_front
+                    or m.start() > content_start
+                    or detect_incorporation(
+                        body[m.start() : m.start() + _INCORPORATION_PREVIEW_CHARS]
+                    )[0]
+                )
             ]
             if not content_matches:
                 outside = [m for m in matches if not _in_toc_zone(m.start(), toc_zones)]
@@ -662,7 +888,17 @@ class Segmenter:
             prose_matches = [
                 m
                 for m in content_matches
-                if not _is_topic_page_index_block(_anchor_preview(body, m.start()))
+                if detect_incorporation(
+                    body[m.start() : m.start() + _INCORPORATION_PREVIEW_CHARS]
+                )[0]
+                or (
+                    not _is_topic_page_index_block(
+                        _anchor_preview(body, m.start(), window_chars=220)
+                    )
+                    and not is_page_reference_text(
+                        _anchor_preview(body, m.start(), window_chars=220)
+                    )
+                )
             ]
             if not prose_matches:
                 continue
