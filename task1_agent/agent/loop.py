@@ -12,6 +12,7 @@ from shared_harness.cost_tracker import BudgetExceededError
 from task1_agent.agent.dom_serialize import compress_a11y
 from task1_agent.agent.recovery import (
     FailureType,
+    MAX_RECOVERY_PER_ACTION,
     MAX_RECOVERY_PER_STEP,
     classify_failure,
     get_next_strategy,
@@ -142,6 +143,15 @@ def _plan_next_action(
         return None
 
 
+def _terminal_verify_kwargs(task_meta: dict | None) -> dict:
+    if not task_meta:
+        return {}
+    return {
+        "task_type": task_meta.get("task_type", "") or "",
+        "success_hints": task_meta.get("success_hints"),
+    }
+
+
 def run(
     *,
     task_description: str,
@@ -149,6 +159,7 @@ def run(
     run_id: str,
     cancel_event: threading.Event | None = None,
     execute_action: "ActionExecutor | None" = None,
+    task_meta: dict | None = None,
 ) -> RunResult:
     """Execute agent loop. Playwright actions delegated to execute_action callable.
 
@@ -188,6 +199,7 @@ def run(
                     cancel_event=cancel_event,
                     prev_step=result.steps[-1] if result.steps else None,
                     max_steps=max_steps,
+                    task_meta=task_meta,
                 )
 
             result.steps.append(step)
@@ -235,6 +247,7 @@ def run(
                             task_description=task_description,
                             start_url=start_url,
                             run_id=run_id,
+                            task_meta=task_meta,
                         )
                         result.steps.append(extract_step)
                         job_store.insert_step(
@@ -289,9 +302,19 @@ def run(
                     result.error = f"Recovery exhausted at step {step_idx}: {step.verify.reason}"
                     break
             else:
-                # Action step (1+) verify failed — let LLM re-plan instead of recovery
-                # This avoids wasting steps on recovery when the page simply hasn't
-                # updated yet (e.g., after typing but before pressing Enter)
+                if not step.verify.passed and step.failure_type:
+                    recovery_ok = _attempt_recovery(
+                        step=step,
+                        step_index=step_idx,
+                        run_id=run_id,
+                        task_description=task_description,
+                        executor=executor,
+                        cancel_event=cancel_event,
+                        result=result,
+                        max_attempts=MAX_RECOVERY_PER_ACTION,
+                    )
+                    if recovery_ok:
+                        continue
                 continue
         else:
             if result.status not in ("cancelled", "blocked"):
@@ -357,6 +380,7 @@ def _execute_extract_step(
     task_description: str,
     start_url: str,
     run_id: str,
+    task_meta: dict | None = None,
 ) -> StepResult:
     """Single-shot extract path after successful navigation (no action loop)."""
     extracted = extract_from_page(
@@ -384,6 +408,7 @@ def _execute_extract_step(
         page_text=nav_step.page_text,
         extracted_result=extracted,
         start_url=start_url,
+        **_terminal_verify_kwargs(task_meta),
     )
     step = StepResult(
         step_index=step_index,
@@ -409,6 +434,7 @@ def _execute_planned_step(
     cancel_event: threading.Event | None,
     prev_step: StepResult | None,
     max_steps: int = MAX_STEPS_DEFAULT,
+    task_meta: dict | None = None,
 ) -> StepResult:
     """Use LLM to plan and execute the next action."""
     prev_url = prev_step.url if prev_step else ""
@@ -439,6 +465,7 @@ def _execute_planned_step(
             page_text=prev_text,
             extracted_result=extracted,
             start_url=start_url,
+            **_terminal_verify_kwargs(task_meta),
         )
         step = StepResult(
             step_index=step_index,
@@ -476,12 +503,13 @@ def _attempt_recovery(
     executor: "ActionExecutor",
     cancel_event: threading.Event | None,
     result: RunResult,
+    max_attempts: int = MAX_RECOVERY_PER_STEP,
 ) -> bool:
-    """Try up to MAX_RECOVERY_PER_STEP different strategies. Returns True if recovered."""
+    """Try recovery strategies. Returns True if recovered."""
     attempted: list[str] = []
     failure_type = step.failure_type or FailureType.ELEMENT_NOT_FOUND
 
-    for _ in range(MAX_RECOVERY_PER_STEP):
+    for _ in range(max_attempts):
         if cancel_event and cancel_event.is_set():
             result.status = "cancelled"
             return False

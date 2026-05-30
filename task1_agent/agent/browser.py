@@ -80,6 +80,7 @@ class PlaywrightExecutor:
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
+        self._last_planned_action: dict | None = None
 
     def start(self) -> None:
         self._pw = sync_playwright().start()
@@ -194,6 +195,7 @@ class PlaywrightExecutor:
         self, step_index: int, task: str, start_url: str, planned_action: dict
     ) -> StepResult:
         """Execute an LLM-planned action."""
+        self._last_planned_action = planned_action
         page = self.page
         action_type = planned_action.get("action", "none")
         selector = planned_action.get("selector", "")
@@ -372,19 +374,51 @@ class PlaywrightExecutor:
     def _do_recovery(self, step_index: int, task: str, start_url: str, strategy: str) -> StepResult:
         """Apply a recovery strategy and re-observe."""
         page = self.page
+        planned = self._last_planned_action or {}
+        selector = str(planned.get("selector") or "")
 
         if "scroll" in strategy:
             page.evaluate("window.scrollBy(0, 500)")
+            try:
+                page.locator(":focus").scroll_into_view_if_needed(timeout=2000)
+            except Exception:
+                pass
         elif "navigate_back" in strategy:
             page.go_back()
         elif "press_enter" in strategy:
             page.keyboard.press("Enter")
         elif "click_parent" in strategy:
             page.evaluate("document.activeElement?.parentElement?.click()")
-        elif "wait" in strategy or "extend" in strategy:
+        elif "network" in strategy:
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except PwTimeout:
+                page.wait_for_timeout(2000)
+        elif "extend" in strategy or strategy.startswith("recovery:wait"):
             page.wait_for_timeout(3000)
-        elif "relax" in strategy or "role_name" in strategy:
-            page.wait_for_timeout(1000)
+        elif "role_name" in strategy and selector:
+            for role in ("button", "link", "textbox", "searchbox"):
+                try:
+                    loc = page.get_by_role(role, name=re.compile(re.escape(selector[:80]), re.I))
+                    if loc.count() > 0:
+                        loc.first.scroll_into_view_if_needed(timeout=3000)
+                        if role in ("textbox", "searchbox"):
+                            loc.first.click(timeout=3000)
+                        else:
+                            loc.first.click(timeout=3000)
+                        break
+                except Exception:
+                    continue
+        elif "relax" in strategy and selector:
+            try:
+                loc = page.get_by_text(selector[:60], exact=False)
+                if loc.count() > 0:
+                    loc.first.scroll_into_view_if_needed(timeout=3000)
+                    loc.first.click(timeout=3000)
+            except Exception:
+                pass
+        elif "replan" in strategy:
+            page.wait_for_timeout(500)
         else:
             page.wait_for_timeout(1000)
 

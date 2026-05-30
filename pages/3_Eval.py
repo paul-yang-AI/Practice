@@ -200,6 +200,60 @@ def _render_heldout_baseline() -> None:
     with st.expander("📋 heldout_baseline.json（原始）"):
         st.json(payload)
 
+    st.divider()
+    _render_agent_heldout_baseline()
+
+
+def _render_agent_heldout_baseline() -> None:
+    baseline_path = _REPORTS / "agent_heldout_baseline.json"
+    st.markdown(
+        "**Browser Agent held-out**（`tasks.yaml` split=heldout，Playwright + LLM）。"
+        "Train KPI 仍為 5/5；此表衡量泛化，**不為刷分調 prompt**。"
+    )
+    if not baseline_path.exists():
+        st.warning(
+            "找不到 `reports/agent_heldout_baseline.json`。"
+            "本地執行：`python scripts/run_agent_heldout_baseline.py`"
+        )
+        return
+    try:
+        payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        st.error(f"無法讀取 agent held-out 基線：{exc}")
+        return
+
+    summary = payload.get("summary", {})
+    c1, c2 = st.columns(2)
+    c1.metric("Held-out 任務數", summary.get("heldout_tasks", "—"))
+    c2.metric("failure_category=ok", summary.get("heldout_ok", "—"))
+
+    rows = []
+    for row in payload.get("heldout", []):
+        cat = row.get("failure_category", "")
+        if cat == "ok" and row.get("silent_failure", 0) == 0:
+            status = "✅ ok"
+        elif cat == "silent_failure":
+            status = "⚠️ silent failure"
+        else:
+            status = f"⚠️ {cat}"
+        rows.append(
+            {
+                "Task": row.get("task_id", ""),
+                "Domain": row.get("domain", ""),
+                "Type": row.get("task_type", ""),
+                "Status": row.get("status", ""),
+                "failure_category": cat,
+                "狀態": status,
+                "steps": row.get("steps", ""),
+                "recovery": row.get("recovery_count", 0),
+                "silent": row.get("silent_failure", 0),
+            }
+        )
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    with st.expander("📋 agent_heldout_baseline.json（原始）"):
+        st.json(payload)
+
 
 def _render_live_runs() -> None:
     st.markdown(
@@ -400,7 +454,7 @@ with tab_limits:
 | 類型 | 用途 | 資料來源 |
 |------|------|----------|
 | **基準評估** | 可重現 KPI、submission 報告 | `tasks.yaml` / `manifest.json` train split |
-| **Held-out 基線** | SEC 泛化驗證（誠實失敗） | `reports/heldout_baseline.json` + SEC「泛化驗證」分頁 |
+| **Held-out 基線** | SEC 泛化驗證（誠實失敗） | `reports/heldout_baseline.json` + Agent `agent_heldout_baseline.json` |
 | **即時紀錄** | 使用者自訂任務除錯 | SQLite `job_store`（Agent + SEC 抽取頁） |
 | **Held-out（Agent）** | 使用者自行驗證 generalization | 如 DuckDuckGo — 不在 train KPI 內 |
 
@@ -409,7 +463,8 @@ with tab_limits:
 | 狀態 | 範例 |
 |------|------|
 | ✅ Train 通過 | example.com、httpbin extract、Wikipedia search、HN、GitHub |
-| ⚠️ Held-out / demo | DuckDuckGo search（headless flaky，UI 可試但不計 KPI） |
+| ✅ Held-out 通過 | SEC EDGAR navigate、python docs（2/4 基線） |
+| ⚠️ Held-out / demo | DuckDuckGo search（max_steps）；httpbin form（type loop） |
 | ⚠️ 不建議 demo | **Google 搜尋**（consent/動態 DOM → type 迴圈；agent 會 stuck 偵測後 fail） |
 | 🚫 不支援 | 登入/CAPTCHA、PDF URL、iframe/shadow DOM、**生成式摘要**（僅抽取頁面文字） |
 | ⚠️ 基礎設施 | Gemini 503 → `plan_failed`（已加 infra 重試） |

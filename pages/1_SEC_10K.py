@@ -10,7 +10,13 @@ from pathlib import Path
 import streamlit as st
 
 from shared_harness import job_store
-from shared_harness.sec_ui import heldout_outcome_badge, sec_result_matches_context
+from shared_harness.sec_ui import (
+    compute_required_kpi,
+    default_required_items,
+    format_required_kpi_banner,
+    heldout_outcome_badge,
+    sec_result_matches_context,
+)
 from shared_harness.edgar_client import (
     build_sec_viewer_url,
     find_proxy_filing,
@@ -54,6 +60,14 @@ _ITEM_NAMES = {
     "15": "Exhibits and Financial Statement Schedules",
     "16": "Form 10-K Summary",
 }
+
+
+def _manifest_filing(accession: str) -> dict | None:
+    data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
+    for f in data.get("filings", []):
+        if f.get("accession") == accession:
+            return f
+    return None
 
 
 def _load_manifest_split(split: str) -> list[dict]:
@@ -119,6 +133,10 @@ def _render_manifest_filing_tab(
         labels = [_heldout_filing_label(f, baseline) for f in filings]
     else:
         labels = [f"{f['ticker']} — {f['accession']} ({f.get('label', '')})" for f in filings]
+        st.caption(
+            "**主 KPI（Required）**：MSFT `1,1A,7,8`；INTC/Citi `1A,7,8`。"
+            "抽取完成後會顯示 Required KPI 通過與否（非全部 16 項）。"
+        )
 
     if not filings:
         st.info("manifest 中尚無此 split 的報表。")
@@ -636,11 +654,36 @@ def _sec_summary_fragment(result: FilingExtraction) -> None:
     _sec_download_fragment()
 
 
-def _render_sec_results(result: FilingExtraction) -> None:
+def _render_sec_results(result: FilingExtraction, *, source: str = "manifest") -> None:
     if st.session_state.get("sec_download_json") is None:
         _cache_sec_downloads(result)
 
     st.divider()
+    filing_meta = _manifest_filing(result.accession)
+    if filing_meta:
+        expected_source = "manifest" if filing_meta.get("split", "train") == "train" else "heldout"
+        if source == expected_source:
+            manifest_data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
+            required = default_required_items(
+                filing_meta.get("required_items") or manifest_data.get("required_items")
+            )
+            kpi = compute_required_kpi(result.items, required)
+            banner, severity = format_required_kpi_banner(
+                ticker=result.ticker or filing_meta.get("ticker", ""),
+                required_item_ids=required,
+                kpi=kpi,
+            )
+            if filing_meta.get("split") == "heldout":
+                banner = banner.replace("Eval train 主指標", "即時 Required（held-out 對照基線 badge）")
+            if severity == "success":
+                st.success(banner)
+            else:
+                st.error(banner)
+            st.caption(
+                f"Gold 邊界為第二層 regression（`{', '.join(manifest_data.get('gold_items', []))}`）；"
+                "上方 **Required** 為 Eval **主 KPI**（非下方 16 項涵蓋率）。"
+            )
+
     html_len = st.session_state.get("sec_html_len", 0)
     filing_viewer = build_sec_viewer_url(result.accession, cik=result.cik)
     doc_link = ""
@@ -689,7 +732,7 @@ def _maybe_render_sec_results(*, source: str, accession: str) -> None:
         return
     result = st.session_state.get("sec_result")
     if result:
-        _render_sec_results(result)
+        _render_sec_results(result, source=source)
 
 
 # --- Page Layout ---

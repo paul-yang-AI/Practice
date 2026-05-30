@@ -184,7 +184,7 @@ whaleforce-coding-test/
 2. **抽取捷徑**：若辨識為「抽取類」任務且導覽成功，直接做一次 LLM 抽取並驗證 → 完成。
 3. **第 1 步及之後**：由 Tier1 LLM 規劃下一個動作（prompt = `agent_plan`，輸出受 `AgentAction` schema 約束），再交給執行器執行。
 4. **完成判定**：規劃器輸出 `done=true` → 做終局驗證 → `task_complete` 或被拒絕 `task_complete_rejected`。
-5. **恢復（Recovery）**：導覽失敗時按失敗類型走「策略表」，**不做盲目重試**，每步最多 2 個策略。
+5. **恢復（Recovery）**：導覽失敗時按失敗類型走「策略表」（每步最多 2 策略）；**動作步失敗**亦會先試 1 次 deterministic recovery 再 replan。
 6. **卡死偵測**：連續 3 次 `type` 但 URL 沒變 → 判定失敗。
 7. **可選終局把關**：`ENABLE_BLIND_CRITIC=true` 時，額外用一個「盲審」LLM 獨立判斷結果是否可信。
 
@@ -200,18 +200,20 @@ whaleforce-coding-test/
 
 ### 評估任務（`task1_agent/eval/tasks.yaml`）
 
-共 8 個任務：5 個 train + 3 個 heldout。最新一輪 train 結果：**5/5 成功，靜默失敗（silent_failure）= 0**。
+共 **9** 個任務：5 個 train + **4** 個 heldout。Train：**5/5 成功，silent_failure=0**（per-filing regression contract）。  
+Held-out 基線（`reports/agent_heldout_baseline.json`）：**2/4 ok**（SEC EDGAR navigate、python docs ✅；DDG search、httpbin form 已知 gap）。
 
 | 站點 | 任務類型 | 狀態 | 說明 |
 |---|---|---|---|
 | example.com | navigate | ✅ Train | 標題驗證，2 步 |
 | news.ycombinator.com | extract | ✅ Train | 抽取頭條標題 |
 | github.com | navigate | ✅ Train | LLM 規劃導覽到 `/python/cpython` |
-| httpbin.org | extract | ✅ Train | 抽取請求標頭（無頭環境偶有時序波動） |
-| wikipedia.org | search | ✅ Train | 多步搜尋；輸入後自動 Enter 送出 |
-| duckduckgo.com | search | ⚠️ Heldout | 無頭環境同意頁/SERP 不穩定，僅 UI 示範，不計入 KPI |
-| sec.gov | navigate | ⚠️ Heldout | EDGAR 搜尋，不在 train 評估內 |
-| httpbin.org/forms | form | ⚠️ Heldout | POST 表單，未專門調校 |
+| httpbin.org | extract | ✅ Train | 抽取請求標頭 |
+| wikipedia.org | search | ✅ Train | 多步搜尋；`success_hints` URL 驗證 |
+| duckduckgo.com | search | ⚠️ Held-out | headless flaky（consent/SERP）；**不計 train KPI** |
+| sec.gov | navigate | ✅ Held-out | EDGAR 搜尋（2/4 基線通過） |
+| httpbin.org/forms | form | ⚠️ Held-out | POST 表單；type 卡死已知 gap |
+| docs.python.org | navigate | ✅ Held-out | **frozen** held-out（勿為此任務調 prompt） |
 
 ---
 
@@ -225,7 +227,7 @@ whaleforce-coding-test/
 
 | 分頁 | 內容 | 用途 |
 |------|------|------|
-| **基準集（Train · 3）** | MSFT / INTC / Citi | 開發 KPI；Eval train 基準 |
+| **基準集（Train · 3）** | MSFT / INTC / Citi | 開發 KPI；抽取後顯示 **Required KPI** 主指標 |
 | **泛化驗證（Held-out · 8）** | BRK.B、JPM、AAPL 2010… | 不在 train 內；每筆顯示基線預期 badge |
 | **自訂報表** | EDGAR 搜尋或 accession | 評審 unseen filing 現場驗證 |
 

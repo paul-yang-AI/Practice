@@ -463,11 +463,16 @@ def evaluate_agent_task(
     task_id = task["id"]
     run_id = job_store.create_run("agent", label=task.get("description", task_id)[:120])
     t0 = time.perf_counter()
+    task_meta = {
+        "task_type": task.get("task_type", ""),
+        "success_hints": task.get("success_hints"),
+    }
     result = agent_run(
         task_description=task["description"],
         start_url=task.get("start_url", "https://example.com"),
         run_id=run_id,
         execute_action=executor,
+        task_meta=task_meta,
     )
     elapsed = time.perf_counter() - t0
 

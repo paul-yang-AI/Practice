@@ -280,19 +280,25 @@ Train KPI path remains **Tier0-only ($0/filing)**. LLM paths are opt-in via eval
 | Char coverage (full body) | 0.87 | 0.86 | 1.00 |
 | USD/filing | $0.00 | $0.00 | $0.00 |
 
-### Task 1 — Browser Agent (from eval_summary.json)
+### Task 1 — Browser Agent (from eval_summary.json + held-out baseline)
 
-| Metric | Value |
-|--------|-------|
-| Train tasks | 5 |
-| Success rate | 100% (5/5) |
-| Silent failures | 0 |
-| P50 latency | 9.3s |
-| P95 latency | 9.9s |
-| P50 cost | $0.0077 |
-| LLM calls (total run) | 8 |
-| Recovery steps (total) | 1 |
-| Max steps/task | 10 |
-| Max LLM calls/task | 25 |
-| Max primary retries | 2 |
-| Global budget | $20 (`RUN_BUDGET_USD`) |
+| Metric | Train | Held-out |
+|--------|-------|----------|
+| Tasks | 5 | 4 |
+| Success / ok | 100% (5/5) | **2/4** (`agent_heldout_baseline.json`) |
+| Silent failures | 0 | 0 |
+| P50 latency | ~9s | — |
+| P50 cost | ~$0.0077/task | — |
+
+**Held-out detail** (Tier0 agent, Playwright + LLM):
+
+| Task | failure_category | Notes |
+|------|------------------|-------|
+| python_docs_heldout | ok | frozen prompt; `success_hints` body check |
+| brkb_heldout_nav | ok | SEC EDGAR navigate |
+| duckduckgo_search | max_steps | consent/SERP; not tuned |
+| forms_heldout | reasoning_failure | form type loop; honest gap |
+
+**Architecture**: L0 step verify + optional Blind Critic; action-step recovery (1 strategy) before replan; locator cascade in executor; `success_hints` in manifest for task-type terminal checks (not per-site code).
+
+Train run details: P95 latency ~9.9s; LLM calls ~8/run; global budget $20 (`RUN_BUDGET_USD`). Optional `ENABLE_BLIND_CRITIC=true` for stricter terminal gate (not default KPI).

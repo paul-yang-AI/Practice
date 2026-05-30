@@ -22,12 +22,36 @@ def test_agent_tasks_manifest_depth() -> None:
     domains = {t.get("domain") for t in tasks}
     task_types = {t.get("task_type") for t in tasks}
 
-    assert len(tasks) >= 8
+    assert len(tasks) >= 9
     assert len(train) >= 5
     assert len(domains) >= 4
     assert len(task_types) >= 3
     heldout = [t for t in tasks if t.get("split") == "heldout"]
-    assert any(t["id"] == "duckduckgo_search" for t in heldout)
+    assert any(t["id"] == "python_docs_heldout" for t in heldout)
+
+
+@pytest.mark.unit
+def test_verify_task_outcome_success_hints() -> None:
+    from task1_agent.agent.verify import verify_task_outcome
+
+    ok = verify_task_outcome(
+        task="Navigate docs",
+        url="https://docs.python.org/3/tutorial/index.html",
+        page_text="Python documentation tutorial overview",
+        start_url="https://docs.python.org/3/",
+        task_type="navigate",
+        success_hints={"expect_body_contains": "Python"},
+    )
+    assert ok.passed
+
+    bad = verify_task_outcome(
+        task="Navigate docs",
+        url="https://example.com/",
+        page_text="Example Domain",
+        start_url="https://docs.python.org/3/",
+        success_hints={"expect_url_contains": "/3/"},
+    )
+    assert not bad.passed
 
 
 @pytest.mark.eval

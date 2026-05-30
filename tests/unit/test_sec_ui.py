@@ -1,6 +1,10 @@
 import pytest
 
-from shared_harness.sec_ui import heldout_outcome_badge, sec_result_matches_context
+from shared_harness.sec_ui import (
+    compute_required_kpi,
+    heldout_outcome_badge,
+    sec_result_matches_context,
+)
 
 
 @pytest.mark.unit
@@ -31,6 +35,38 @@ def test_sec_result_matches_context_rejects_wrong_accession() -> None:
         result_source="manifest",
         result_accession="0000950170-24-087843",
     )
+
+
+@pytest.mark.unit
+def test_compute_required_kpi_msft() -> None:
+    from types import SimpleNamespace
+
+    from shared_harness.schemas.sec_schema import ItemStatus
+
+    items = [
+        SimpleNamespace(item_id=i, text="x" * 600, status=ItemStatus.EXTRACTED)
+        for i in ("1", "1A", "7", "8")
+    ]
+    kpi = compute_required_kpi(items, ["1", "1A", "7", "8"])
+    assert kpi["passed"] is True
+    assert kpi["label"] == "4/4"
+
+
+@pytest.mark.unit
+def test_compute_required_kpi_intc_contract() -> None:
+    from types import SimpleNamespace
+
+    from shared_harness.schemas.sec_schema import ItemStatus
+
+    items = [
+        SimpleNamespace(item_id="1A", text="risk" * 200, status=ItemStatus.EXTRACTED),
+        SimpleNamespace(item_id="7", text="mda" * 200, status=ItemStatus.EXTRACTED),
+        SimpleNamespace(item_id="8", text="fs" * 200, status=ItemStatus.EXTRACTED),
+        SimpleNamespace(item_id="1", text="Pages 1-5", status=ItemStatus.EXTRACTED),
+    ]
+    kpi = compute_required_kpi(items, ["1A", "7", "8"])
+    assert kpi["passed"] is True
+    assert kpi["found"] == 3
 
 
 @pytest.mark.unit

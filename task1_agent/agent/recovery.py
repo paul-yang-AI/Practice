@@ -22,6 +22,7 @@ STRATEGY_TABLE: dict[FailureType, list[str]] = {
 }
 
 MAX_RECOVERY_PER_STEP = 2
+MAX_RECOVERY_PER_ACTION = 1
 
 
 def get_next_strategy(

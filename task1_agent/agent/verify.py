@@ -176,21 +176,44 @@ def verify_task_outcome(
     page_text: str,
     extracted_result: str = "",
     start_url: str = "",
+    task_type: str = "",
+    success_hints: dict | None = None,
 ) -> VerifyResult:
     """Terminal verification when the planner declares done=true."""
+    hints = success_hints or {}
+
     if extracted_result.strip():
         ext = verify_extracted_result(extracted_result, page_text)
         if not ext.passed:
             return ext
     else:
-        min_len = 50 if "extract" in task.lower() else 15
+        min_len = 50 if "extract" in task.lower() or task_type == "extract" else 15
         if len(page_text.strip()) < min_len:
             return VerifyResult(passed=False, reason="Final page content too short")
+
+    url_fragment = hints.get("expect_url_contains")
+    if url_fragment and url_fragment.lower() not in url.lower():
+        return VerifyResult(
+            passed=False,
+            reason=f"Final URL missing expected fragment: {url_fragment!r}",
+        )
+
+    body_fragment = hints.get("expect_body_contains")
+    if body_fragment and body_fragment.lower() not in page_text.lower():
+        return VerifyResult(
+            passed=False,
+            reason=f"Final page missing expected text: {body_fragment!r}",
+        )
 
     quoted = _quoted_terms(task)
     if quoted:
         if not any(_term_on_page(q, page_text, url) for q in quoted):
             return VerifyResult(passed=False, reason=f"Task terms not reflected on page: {quoted}")
+
+    if task_type == "search" and start_url:
+        query_terms = [q for q in quoted if q]
+        if query_terms and url.rstrip("/") == start_url.rstrip("/"):
+            return VerifyResult(passed=False, reason="Search task ended on start URL without navigation")
 
     if start_url:
         expected_domain = urlparse(start_url).netloc.replace("www.", "")

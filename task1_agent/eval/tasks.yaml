@@ -22,6 +22,8 @@ tasks:
     start_url: https://en.wikipedia.org
     split: train
     target_failure: ELEMENT_NOT_FOUND
+    success_hints:
+      expect_url_contains: "/wiki/"
 
   - id: github_navigate_repo
     domain: github.com
@@ -30,6 +32,8 @@ tasks:
     start_url: https://github.com
     split: train
     target_failure: TIMEOUT
+    success_hints:
+      expect_url_contains: "/cpython"
 
   - id: hacker_news_top
     domain: news.ycombinator.com
@@ -37,6 +41,8 @@ tasks:
     description: "Go to Hacker News and extract the title of the #1 ranked story."
     start_url: https://news.ycombinator.com
     split: train
+    success_hints:
+      expect_body_contains: "Hacker News"
 
   - id: duckduckgo_search
     domain: duckduckgo.com
@@ -60,3 +66,16 @@ tasks:
     description: "Submit a POST form on httpbin.org/forms/post with sample data."
     start_url: https://httpbin.org/forms/post
     split: heldout
+    success_hints:
+      expect_body_contains: "form"
+
+  - id: python_docs_heldout
+    domain: docs.python.org
+    task_type: navigate
+    description: "Navigate to docs.python.org and verify Python documentation is visible."
+    start_url: https://docs.python.org/3/
+    split: heldout
+    frozen_prompt: true
+    success_hints:
+      expect_body_contains: "Python"
+    notes: "Frozen held-out — do not tune agent_plan prompt for this task after adding."

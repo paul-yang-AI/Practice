@@ -388,3 +388,13 @@ Record v1→v2 changes with Failed Path / Resolution / Validation.
   4. `_supplement_note_cross_ref_items` for Item 3 note pointers.
   5. Eval CSV: `required_prose_count`, `required_cross_ref_count`, `expected_missing_ok_count`.
 - **Validation**: Train 3/3 + 3/3 + 4/4 MSFT; JPM held-out **4/4**; Citi Item 3 note cross-ref extracted; held-out **6/8** ok; **151** pytest green; gold regenerated.
+
+### `agent_heldout_baseline_and_recovery` (2026-05-29)
+
+- **Goal**: Agent eval discipline parity with SEC — held-out JSON, honest gaps, substantive recovery (not sleep stubs).
+- **P0**: `scripts/run_agent_heldout_baseline.py` → `reports/agent_heldout_baseline.json`; Eval UI section.
+- **P1**: Action-step recovery (`MAX_RECOVERY_PER_ACTION=1`); `_do_recovery` implements scroll/role_name/networkidle; integration test.
+- **P2**: `success_hints` in `tasks.yaml` + `verify_task_outcome` task-type checks; `task_meta` threaded through `run()`.
+- **P3**: Frozen held-out `python_docs_heldout` (do not tune prompt for it).
+- **P4**: SEC UI **Required KPI** banner on extract (`sec_ui.compute_required_kpi`); README/SUBMISSION/analysis updated.
+- **Validation**: Agent held-out **2/4** ok (SEC EDGAR + python docs); DDG/forms honest fail; train 5/5 unchanged; pytest green.

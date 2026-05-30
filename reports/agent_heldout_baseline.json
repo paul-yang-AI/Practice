@@ -1,0 +1,73 @@
+{
+  "heldout": [
+    {
+      "task_id": "duckduckgo_search",
+      "domain": "duckduckgo.com",
+      "task_type": "search",
+      "split": "heldout",
+      "status": "failed",
+      "failure_category": "max_steps",
+      "steps": 15,
+      "elapsed_s": 57.58,
+      "recovery_count": 0,
+      "llm_calls": 15,
+      "silent_failure": 0,
+      "usd_per_task": 0.0605,
+      "extracted_result_preview": "",
+      "error": "Max steps reached without task completion"
+    },
+    {
+      "task_id": "brkb_heldout_nav",
+      "domain": "sec.gov",
+      "task_type": "navigate",
+      "split": "heldout",
+      "status": "success",
+      "failure_category": "ok",
+      "steps": 7,
+      "elapsed_s": 29.99,
+      "recovery_count": 0,
+      "llm_calls": 6,
+      "silent_failure": 0,
+      "usd_per_task": 0.0119,
+      "extracted_result_preview": "Access to SEC EDGAR was blocked by the website's security policy (Request Rate Threshold Exceeded). Search for Berkshire Hathaway filings could not be completed",
+      "error": null
+    },
+    {
+      "task_id": "forms_heldout",
+      "domain": "httpbin.org",
+      "task_type": "form",
+      "split": "heldout",
+      "status": "failed",
+      "failure_category": "reasoning_failure",
+      "steps": 4,
+      "elapsed_s": 20.58,
+      "recovery_count": 0,
+      "llm_calls": 3,
+      "silent_failure": 0,
+      "usd_per_task": 0.0035,
+      "extracted_result_preview": "",
+      "error": "Agent stuck: repeated type actions without page change. For search tasks use type with a visible label as selector and the query in value, then press_key Enter if needed."
+    },
+    {
+      "task_id": "python_docs_heldout",
+      "domain": "docs.python.org",
+      "task_type": "navigate",
+      "split": "heldout",
+      "status": "success",
+      "failure_category": "ok",
+      "steps": 2,
+      "elapsed_s": 3.73,
+      "recovery_count": 0,
+      "llm_calls": 1,
+      "silent_failure": 0,
+      "usd_per_task": 0.0049,
+      "extracted_result_preview": "The Python documentation is visible. The page title is \"Python 3.14.5 documentation\" and it states, \"Welcome! This is the official documentation for Python 3.14",
+      "error": null
+    }
+  ],
+  "summary": {
+    "heldout_tasks": 4,
+    "heldout_ok": 2,
+    "heldout_strict_ok": 2
+  }
+}

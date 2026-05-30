@@ -36,12 +36,12 @@
 ### Zeabur smoke (after push → auto redeploy)
 - [ ] **Browser Agent**: preset "Navigate to Example.com" → Run → Refresh → `success` + **Result** block
 - [ ] **Browser Agent**: preset "Hacker News" → verify multi-step + extracted title
-- [ ] **SEC 10K → 基準集**: MSFT → Extract → Item tree; **INTC → 1A/7/8 應為長正文**（required 不含 Item 1）
+- [ ] **SEC 10K → 基準集**: MSFT extract → **Required KPI 4/4** banner at top; INTC/Citi **3/3**
 - [ ] **SEC 10K → 基準集**: Citi → Extract → 數秒內完成；**1A/7/8 + 9A/9B 長正文**；Item 10–14 incorporated；front 索引列 honest missing
 - [ ] **SEC 10K → 泛化驗證**: JPM → **4/4 required**；extract runs
 - [ ] **SEC 10K**: JSON/Markdown 下載（metrics 下方，應即時無長等待）
 - [ ] **Eval → 基準 Train**: 載入存檔結果正常
-- [ ] **Eval → Held-out 基線**: table shows 6/8 ok
+- [ ] **Eval → Held-out 基線**: SEC table 6/8 ok; **Agent** table 2/4 ok
 - [ ] **Eval**: 即時紀錄 tab 可見 Agent + SEC runs
 
 ### GitHub
@@ -78,6 +78,7 @@ Port: **8501** (Networking must map to container 8501).
 .venv\Scripts\python.exe scripts/run_eval.py --split train
 .venv\Scripts\python.exe scripts/run_agent_eval.py
 .venv\Scripts\python.exe scripts/run_heldout_baseline.py
+.venv\Scripts\python.exe scripts/run_agent_heldout_baseline.py
 .venv\Scripts\python.exe scripts/cache_heldout_filings.py
 .venv\Scripts\python.exe scripts/run_heldout_snapshot.py
 .venv\Scripts\python.exe scripts/demo_circuit_breaker.py
@@ -88,4 +89,5 @@ streamlit run streamlit_app.py
 
 - **SEC train**: 3/3 filings `failure_category=ok` (MSFT 4/4, INTC/Citi 3/3 required); Tier0 $0.00/filing
 - **SEC held-out (Tier0, 8 cached)**: 6/8 ok; 6/8 strict required pass — see `reports/heldout_baseline.json`
-- **Agent train**: 5/5 success (100%); silent_failure=0; search validated on Wikipedia (DDG heldout)
+- **Agent train**: 5/5 success; silent_failure=0
+- **Agent held-out**: 2/4 ok — see `reports/agent_heldout_baseline.json`
