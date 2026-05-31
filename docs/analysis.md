@@ -299,7 +299,7 @@ Train KPI 路徑仍 **Tier0-only（$0/filing）**。LLM 路徑可經 eval flags 
 
 | 指標 | Train | Held-out |
 |------|-------|----------|
-| Tasks | 5 | 4 |
+| Tasks | 5 | 5 |
 | Success / ok | 100% (5/5) | **3/5**（forms + python_docs + quotes；無 silent failure） |
 | Silent failures | 0 | 0 |
 
