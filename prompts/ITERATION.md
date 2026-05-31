@@ -2,6 +2,25 @@
 
 記錄 v1→v2 變更，每節含 **失敗路徑（Failed Path）** / **修正（Resolution）** / **驗證（Validation）**。
 
+## 核心迭代軌跡（TL;DR）
+
+本紀錄展示系統如何從「脆弱原型」演進為「具防禦力的可交付架構」。下方條目按時間序；**最新 KPI 狀態**（詳見 README / `reports/`）：
+
+| 指標 | Train | Held-out |
+|------|-------|----------|
+| SEC 10-K | **3/3** ok（MSFT 4/4、INTC/Citi 3/3 required）· Tier0 **$0/filing** | **6/8** ok（AAPL 2010、KSCP 10-K/A 為誠實 gap；**JPM 4/4** 已於 `kpi_alignment_and_jpm_header_quality` 修復） |
+| Browser Agent | **5/5** success · `silent_failure=0` | **3/5** ok（forms、python_docs、quotes；SEC EDGAR、DDG 已知 gap） |
+
+**三條主軸：**
+
+1. **Agent 穩定性**：盲目 retry → `FailureType` + `STRATEGY_TABLE`（`agent_recovery v2`）；根除 silent failure（`verify` + `success_hints` + eval 雙重檢查）；extract vs act 路由（`agent_extract_path`）。
+2. **SEC 10-K 解析**：行首 regex → TOC 迴避 + 頁碼引用雙向升級 + bank mega-TOC scrub（`segment v3`、`cross_ref_bidirectional_upgrade`、`bank_mega_toc_index_scrub`）；Tier0 KPI 優先，LLM 為 opt-in 手術刀（arbiter / classify / fallback）。
+3. **基礎設施與交付**：Gemini thinking / `max_tokens` 衝突（`deployment_fix`、`max_tokens_and_sec_ui`）；Playwright context 隔離；SQLite WAL；文件分離（`PLAN.md` 不變式 + 本檔動態 ADR）。
+
+> 靜態架構邊界見 [`PLAN.md`](../PLAN.md)；評審入口見 [`README.md`](../README.md)、[`docs/analysis.md`](../docs/analysis.md)。
+
+---
+
 ## deployment_fix: Agent LLM 打通 + SEC UI 重構 + LLM fallback 層 + 評估即時化
 
 - **失敗路徑**：部署後發現五個問題：
@@ -78,11 +97,9 @@
   `v1_recovery.txt` 為扁平指令，無 failure-type 感知。
 - **修正**：在 `recovery.py` 引入 `FailureType` enum + `STRATEGY_TABLE`。
   `get_next_strategy(failure_type, attempted)` 回傳下一個*未嘗試*策略；
-  `MAX_RECOVERY_PER_STEP = 2` 上限。`prompt_loader.load_prompt("recovery", variant=failure_type)`
-  從 `prompts/sops/recovery.md` 注入對應 SOP 片段。升級為 `prompts/v2_recovery.txt`，
-  含 per-failure-type 策略、明確「do NOT repeat」約束、JSON-only 輸出格式。
-  **Runtime 備註**：Recovery 透過 `STRATEGY_TABLE` 確定性執行 — 每步無 LLM 呼叫。
-  `sops/recovery.md` 與 `v2_recovery.txt` 記錄策略目錄，供 reviewer 與未來 LLM-guided recovery 參考。
+  `MAX_RECOVERY_PER_STEP = 2` 上限。曾規劃以 `prompt_loader.load_prompt("recovery", variant=…)` 注入 SOP；
+  **最終收斂**：runtime **完全不用 LLM recovery** — 僅 `STRATEGY_TABLE` 確定性執行（零 token、可 L1 測試）。
+  `sops/recovery.md` 與 legacy `v2_recovery.txt` 保留策略目錄供 reviewer / 設計對照，非 runtime prompt。
 - **驗證**：`test_recovery_routing`（9 assertions）通過 — `ACTION_NO_EFFECT` 每次回傳不同策略；
   策略耗盡回傳 `None`；`CAPTCHA_OR_LOGIN` 恆回傳 `blocked`。L2 `test_agent_recovery_loop`
   確認 recovery→success 與 exhaustion→failed 端到端路徑。新增 L2 `test_verify_blind_critic_gate`
@@ -464,3 +481,49 @@
   - search `?q=` URL fallback on type-loop stuck（`intent.build_search_fallback_url` + `loop.py`）
   - 新增 `quotes_heldout`（domain diversity；static HTML）
 - **驗證**：agent held-out **3/5** ok；`silent_failure=0`；unit + regression PASS
+
+### `[Docs/UX]` `submission_polish_and_citi_missing_ux`（2026-05-31）
+
+- **失敗路徑**：
+  1. README 強調 SEC Tier0 **$0** 與 gold「循環」措辭，快讀易誤解為「無 AI 協作」或 circular eval 作弊。
+  2. Citi train 抽取後大量 Item 顯示紅色「報表中未找到」，Required KPI ✅ 3/3 仍被 16 項 missing 視覺淹沒。
+  3. `PLAN.md` 缺 AI 協作邊界，Cursor 易讀入已廢棄的 Day 1–7 語境（已由 `plan_reposition` 收斂，但未寫明 assistant 指令）。
+- **修正**：
+  1. **README**：mermaid 架構圖；Train 用語 disambiguation；gold → **Regression baseline**；成本表區分 KPI path vs opt-in LLM。
+  2. **SEC UI**（`sec_ui.py` + `1_SEC_10K.py`）：manifest `expected_missing` 分級；missing 預設折疊；摘要改「預期無章節 / 待關注缺失」。
+  3. **PLAN.md**：新增 **AI assistant** 小節（硬約束 + 指向 `.cursorrules`）。
+  4. **本檔**：TL;DR 核心軌跡 + 最終 KPI（含 JPM 4/4 修復後狀態）。
+- **驗證**：`test_sec_ui.py`（含 `summarize_item_statuses`）；Citi 實跑 Required **3/3**、missing 8 項（3 預期 + 5 待關注）折疊展示；`test_sec_manifest` + regression 綠。
+
+### `[SEC/UX]` `brk_k1_exhibit_cross_ref`（2026-05-31）
+
+- **失敗路徑**：Held-out **BRK.B** Item 1A/7 抽取結果僅為 `Risk Factors` + `K-24` / MD&A 標題 + `K-33`（K-1 目錄索引），UI 仍顯示 ✅ 真實內文；`is_cross_reference_index` 只認 `Pages N`，不認 `K-xx`。
+- **修正**：
+  1. `content_quality.is_k1_exhibit_reference_index()` + 擴充 `is_cross_reference_index()`。
+  2. SEC UI：`cross_ref` badge、「K-1 索引」expander 後綴與說明；索引列不再顯示「契約驗證通過」。
+  3. README Future Work #7–8（RAG 層 / exhibit 追蹤）；`eval_spot_checks.md` BRK 期望更新。
+- **驗證**：`test_content_quality.py`（BRK K-24/K-33）；`test_segment_classify.py`；required KPI 仍 4/4（cross_ref 算 satisfied）。
+
+### `[Docs/UX]` `ui_copy_alignment`（2026-05-31）
+
+- **失敗路徑**：首頁 Tier1/T2 命名與 README 相反；agent 任務數 6 vs 10；pytest 65+ vs ~173；README 稱 UI 可開 fallback 但 SEC 頁僅 Tier2 checkbox；Eval 已知限制缺 JPM / BRK K-xx 說明。
+- **修正**：`0_Home.py`、`3_Eval.py`、`1_SEC_10K.py`、`2_Browser_Agent.py`、`sec_ui.py`、`README.md` 文案對齊 repo KPI 與 opt-in LLM 分工。
+- **驗證**：`test_sec_ui.py` 綠。
+
+### `[Docs]` `readme_analysis_kpi_alignment`（2026-05-31）
+
+- **失敗路徑**：README 專案結構仍寫 8 agent 任務 / held-out「11 檔」標題易誤讀；`analysis.md` INTC required 4/4、train 表 extracted 與 CSV 不符。
+- **修正**：README → **10（5+5）**、held-out **8 檔**、MSFT gold 22 vs extracted 21 註解；analysis required + train 表對齊 `eval_train.csv`。
+- **驗證**：grep 無殘留「8 個代理」「11 檔 held-out」；INTC 3/3 一致。
+
+### `[Docs]` `analysis_executive_summary`（2026-05-31）
+
+- **失敗路徑**：`analysis.md` 缺快速掃描 TL;DR；「Medical RAG v2」對評審陌生；held-out manifest「11 entries」易誤讀。
+- **修正**：Executive Summary（SEC/Agent/泛化三條）；RAG 小節泛化為「高風險領域 span 抽取」；manifest 8 vs 11 用語對齊 README。
+- **驗證**：與 `eval_train.csv`、`heldout_baseline.json`、`ITERATION.md` KPI 表一致。
+
+### `[Docs]` `eval_spot_checks_polish`（2026-05-31）
+
+- **失敗路徑**：spot_checks 多數為 Check 計畫欄、缺 JPM/KSCP；與 analysis 邊角案例未閉環。
+- **修正**：Scope note；Observation 欄 + BRK/JPM/KSCP/AAPL/MSFT FY2020 結果；O/NEM/GROW baseline 索引表。
+- **驗證**：對齊 `heldout_baseline.json` required / failure_category。

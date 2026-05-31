@@ -82,7 +82,7 @@ def format_required_kpi_banner(
     return (
         f"**Required KPI ❌ {kpi['label']}** — "
         f"必需項 `{items_str}`；未達標 Item：**{fail}**。"
-        "TOC stub / missing 不算通過。",
+        "TOC stub / missing 不算通過；cross_ref 算找到（真實正文另計）。",
         "error",
     )
 
@@ -117,3 +117,84 @@ def sec_result_matches_context(
     if not accession or not result_accession or not result_source:
         return False
     return result_source == source and result_accession.strip() == accession
+
+
+def _item_status_value(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("status", "missing"))
+    return item.status.value
+
+
+def _item_id(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("item_id", ""))
+    return item.item_id
+
+
+def is_expected_missing(item_id: str, expected_missing: list[str] | None) -> bool:
+    return bool(expected_missing and item_id in expected_missing)
+
+
+def summarize_item_statuses(items: list, *, expected_missing: list[str] | None = None) -> dict:
+    """Count item statuses; split missing into expected vs unexpected (manifest)."""
+    expected = set(expected_missing or [])
+    counts = {
+        "extracted": 0,
+        "incorporated": 0,
+        "low_confidence": 0,
+        "not_applicable": 0,
+        "missing_expected": 0,
+        "missing_unexpected": 0,
+        "total": len(items),
+    }
+    for item in items:
+        status = _item_status_value(item)
+        if status == "extracted":
+            counts["extracted"] += 1
+        elif status == "incorporated_by_reference":
+            counts["incorporated"] += 1
+        elif status == "low_confidence":
+            counts["low_confidence"] += 1
+        elif status == "not_applicable":
+            counts["not_applicable"] += 1
+        elif status == "missing":
+            key = "missing_expected" if _item_id(item) in expected else "missing_unexpected"
+            counts[key] += 1
+    counts["missing_total"] = counts["missing_expected"] + counts["missing_unexpected"]
+    counts["resolved"] = (
+        counts["extracted"] + counts["incorporated"] + counts["not_applicable"]
+    )
+    return counts
+
+
+def missing_item_display(
+    item_id: str,
+    *,
+    expected: bool,
+    item_name: str = "",
+) -> tuple[str, str, str, str]:
+    """Return (icon, title_suffix, bg_color, border_color) for a missing Item row."""
+    title = f"Item {item_id}" + (f" — {item_name}" if item_name else "")
+    if expected:
+        return (
+            "○",
+            f"{title} · 本格式無獨立章節（預期）",
+            "#f9fafb",
+            "#9ca3af",
+        )
+    return (
+        "⚠️",
+        f"{title} · 未找到可抽取正文",
+        "#fff7ed",
+        "#f59e0b",
+    )
+
+
+def format_coverage_summary(counts: dict) -> str:
+    """One-line HTML-safe summary for item list (not Required KPI)."""
+    parts = [f"正文/引用已解析 <strong>{counts['resolved']}/{counts['total']}</strong>"]
+    if counts["missing_expected"]:
+        parts.append(f"預期無獨立章節 {counts['missing_expected']}")
+    if counts["missing_unexpected"]:
+        parts.append(f"待關注缺失 {counts['missing_unexpected']}")
+    return " · ".join(parts)

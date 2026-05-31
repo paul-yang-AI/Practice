@@ -49,8 +49,8 @@ with col1:
     st.markdown(
         '<div class="arch-card">'
         "<h3>📄 Task 2 — SEC 10-K 管線</h3>"
-        "<p>三層抽取：Tier0（BS4/正則）→ Tier1（LLM 仲裁）→ Tier2（LLM Fallback）<br>"
-        "合併引用偵測 · 跨引用過濾 · 段落完整性保證</p>"
+        "<p>Tier0（BS4/正則）→ 可選 Tier1（fallback / 分類）→ 可選 Tier2（邊界仲裁）<br>"
+        "合併引用偵測 · K-xx / Pages 交叉引用 · span 完整性</p>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -58,8 +58,8 @@ with col2:
     st.markdown(
         '<div class="arch-card">'
         "<h3>🤖 Task 1 — 瀏覽器代理</h3>"
-        "<p>Plan → Act → Observe → Verify → Reflect<br>"
-        "Playwright + LLM 規劃 · 分類式錯誤恢復<br>"
+        "<p>Plan → Act → Observe → Verify<br>"
+        "Playwright + LLM 規劃 · 失敗時分類式 Recovery<br>"
         "PDF 偵測 · 關鍵字驗證 · 成本熔斷</p>"
         "</div>",
         unsafe_allow_html=True,
@@ -68,7 +68,7 @@ with col3:
     st.markdown(
         '<div class="arch-card">'
         "<h3>📊 駕馭層 (Harness)</h3>"
-        "<p>Contract-Driven Evaluation（無需 Ground Truth）<br>"
+        "<p>Contract-Driven Evaluation（span / token 契約）<br>"
         "LLM Router · Cost Tracker · Job Store<br>"
         "L1 單元 / L2 整合 / L3 端對端</p>"
         "</div>",
@@ -83,9 +83,10 @@ st.subheader("核心設計決策")
 st.markdown(
     '<div class="design-card">'
     "<h4>1. 為什麼不用純 LLM 抽取 SEC 報表？</h4>"
-    "<p>Tier0（BS4/正則）以 <b>$0 成本</b>處理 90%+ 的 items，確定性抽取不會產生幻覺。"
-    "LLM 僅在兩種情形啟動：(a) 邊界爭議仲裁 &lt; 5% 案例，(b) Tier0 覆蓋率不足時的 Fallback。"
-    "這是成本、速度、準確度的最佳平衡點。</p>"
+    "<p>Train KPI 刻意走 <b>Tier0-only（$0/filing）</b>，確定性 span 抽取零幻覺。"
+    "LLM 為 opt-in 手術刀：<b>Tier2</b> 邊界仲裁（SEC 頁 checkbox）；"
+    "<b>Tier1</b> chunk fallback 僅 CLI（<code>--with-llm</code>）。"
+    "預設 Eval 路徑不呼叫 LLM。</p>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -95,7 +96,8 @@ st.markdown(
     "<p><b>Span Integrity</b>：body[start:end] == text → 零幻覺。"
     "<b>Token Ratio ≥ 0.85</b> → 零摘要（保證原文）。"
     "<b>Header Retention</b> → 邊界精度。"
-    "三個指標結合，讓使用者可以對任意 held-out 10-K 自動驗證品質，無需準備 ground truth。</p>"
+    "三個指標結合，可對任意 held-out 10-K 自動驗證；"
+    "<code>eval/gold/</code> 為 Tier0 regression baseline（非人工標注）。</p>"
     "</div>",
     unsafe_allow_html=True,
 )
@@ -111,7 +113,8 @@ st.markdown(
 st.markdown(
     '<div class="design-card">'
     "<h4>4. 泛化而非過擬合</h4>"
-    "<p>開發用 **3 份 train filing** + **8 份 held-out**（SEC 頁「泛化驗證」分頁）與 6 個 agent task 做 sanity check。"
+    "<p>開發用 **3 份 train filing** + **8 份 held-out**（SEC 頁「泛化驗證」）與 "
+    "**10 個 agent 任務**（5 train + 5 held-out）做 sanity check。"
     "管線不含任何 filing-specific hardcode（如 CIK 白名單、公司名特判）。"
     "EDGAR API 搜尋 + CIK 自動解析，讓使用者可以自由輸入任意 10-K accession。</p>"
     "</div>",
@@ -131,14 +134,19 @@ st.markdown(
     '<span class="flow-arrow">→</span>'
     '<span class="flow-step">合併偵測</span>'
     '<span class="flow-arrow">→</span>'
-    '<span class="flow-step">LLM 仲裁</span>'
+    '<span class="flow-step">驗證</span>'
     '<span class="flow-arrow">→</span>'
-    '<span class="flow-step">LLM Fallback</span>'
+    '<span class="flow-step">可選 Tier2 仲裁</span>'
     '<span class="flow-arrow">→</span>'
-    '<span class="flow-step">驗證 + 輸出</span>',
+    '<span class="flow-step">可選 Tier1 Fallback</span>'
+    '<span class="flow-arrow">→</span>'
+    '<span class="flow-step">輸出</span>',
     unsafe_allow_html=True,
 )
-st.caption("Tier0 覆蓋率正常時，LLM 仲裁和 Fallback 均不觸發（$0 路徑）")
+st.caption(
+    "預設 Eval / UI 走 Tier0-only（$0）；Tier2 仲裁與 Tier1 fallback 皆 opt-in，"
+    "覆蓋率正常時不觸發。"
+)
 
 st.divider()
 
@@ -155,7 +163,7 @@ st.markdown(
     '<span class="flow-arrow">→</span>'
     '<span class="flow-step">Verify</span>'
     '<span class="flow-arrow">→</span>'
-    '<span class="flow-step">Reflect (LLM)</span>'
+    '<span class="flow-step">Recovery</span>'
     '<span class="flow-arrow">→</span>'
     '<span class="flow-step">Extract</span>',
     unsafe_allow_html=True,
@@ -175,7 +183,7 @@ with st.expander("技術堆疊"):
 | 儲存 | SQLite WAL | 任務紀錄、步驟、成本事件 |
 | 解析 | BeautifulSoup4 | SEC HTML 正規化 |
 | 部署 | Zeabur + Docker | 從 GitHub 自動部署 |
-| 測試 | pytest (65+) | 單元 / 整合 / 端對端 |
+| 測試 | pytest (~173) | 單元 / 整合 / eval |
 """)
 
 with st.expander("評估層級說明"):
@@ -203,6 +211,6 @@ shared_harness/
         │
         ▼
 LLM：Gemini Flash / Pro
-預算：$20 全域 · $0.50/代理執行 · 熔斷器""",
+預算：$20 全域 · $0.50/代理 · $0.30/filing · 熔斷器""",
         language=None,
     )

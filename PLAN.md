@@ -4,6 +4,13 @@
 > **Full iteration log** (Failed Path → Resolution → Validation): [`prompts/ITERATION.md`](prompts/ITERATION.md).
 > **Submission audit trail** (per test brief): Git history + `prompts/` + README + [`docs/analysis.md`](docs/analysis.md).
 
+## AI assistant (Cursor / Claude)
+
+- Treat **Architecture** and **MVI Stop-Loss** below as hard constraints — do not propose stack swaps (e.g. LangChain, FastAPI UI, Postgres, Celery/SSE) that violate them.
+- Do not revive Day 1–7 tasks or open phase gates; history lives in [`prompts/ITERATION.md`](prompts/ITERATION.md) and `git log`.
+- **Architecture changes**: ask the user first; then update `tests/` and add an ITERATION entry (Failed Path → Resolution → Validation) before merging.
+- Day-to-day coding rules: [`.cursorrules`](.cursorrules) at repo root (litellm, `edgar_client`, recovery, cost breaker, etc.).
+
 ## Goal
 
 Monorepo with **task1_agent/** (browser agent), **task2_sec/** (10-K pipeline), **shared_harness/** (LLM router, cost, EDGAR, job store).

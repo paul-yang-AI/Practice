@@ -10,15 +10,36 @@ from task2_sec.pipeline.segment import is_page_reference_text
 TOC_STUB_MAX_CHARS = 500
 
 _PAGES_KW_RE = re.compile(r"\bPages?\s+\d", re.IGNORECASE)
+_K_EXHIBIT_REF_RE = re.compile(r"\bK-\d+\b", re.IGNORECASE)
+_ITEM_HEADER_RE = re.compile(r"Item\s+\d+[A-Z]?\.?", re.IGNORECASE)
 
 
-def is_cross_reference_index(text: str | None, *, max_chars: int = TOC_STUB_MAX_CHARS) -> bool:
-    """INTC-style Item → page list (explicit 'Pages N' citations), not a bank TOC row."""
+def is_k1_exhibit_reference_index(
+    text: str | None, *, max_chars: int = TOC_STUB_MAX_CHARS
+) -> bool:
+    """BRK-style K-1 internal refs (e.g. K-24, K-33) — title + pointer, not full Item body."""
     if not text:
         return False
     clean = text.strip()
     if len(clean) >= max_chars:
         return False
+    if _K_EXHIBIT_REF_RE.search(clean) is None:
+        return False
+    residual = _K_EXHIBIT_REF_RE.sub("", clean)
+    residual = _ITEM_HEADER_RE.sub("", residual)
+    residual = re.sub(r"\s+", " ", residual).strip()
+    return len(residual) < 200
+
+
+def is_cross_reference_index(text: str | None, *, max_chars: int = TOC_STUB_MAX_CHARS) -> bool:
+    """Cross-ref index row: INTC 'Pages N' or BRK K-1 'K-xx' pointers — not bank TOC stubs."""
+    if not text:
+        return False
+    clean = text.strip()
+    if len(clean) >= max_chars:
+        return False
+    if is_k1_exhibit_reference_index(clean, max_chars=max_chars):
+        return True
     return is_page_reference_text(clean) and _PAGES_KW_RE.search(clean) is not None
 
 

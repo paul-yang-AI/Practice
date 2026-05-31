@@ -13,9 +13,13 @@ from shared_harness import job_store
 from shared_harness.sec_ui import (
     compute_required_kpi,
     default_required_items,
+    format_coverage_summary,
     format_required_kpi_banner,
     heldout_outcome_badge,
+    is_expected_missing,
+    missing_item_display,
     sec_result_matches_context,
+    summarize_item_statuses,
 )
 from shared_harness.edgar_client import (
     build_sec_viewer_url,
@@ -27,7 +31,12 @@ from shared_harness.edgar_client import (
 from shared_harness.schemas.sec_schema import FilingExtraction, ItemStatus, STANDARD_ITEMS
 from task2_sec.pipeline.fetch import fetch_filing_html
 from task2_sec.pipeline.run import extract_from_html
-from task2_sec.pipeline.content_quality import assess_required_item, is_likely_toc_stub
+from task2_sec.pipeline.content_quality import (
+    assess_required_item,
+    is_cross_reference_index,
+    is_k1_exhibit_reference_index,
+    is_likely_toc_stub,
+)
 from task2_sec.pipeline.segment import is_page_reference_text
 from task2_sec.pipeline.segment_classify import SegmentClass, classify_segment_text
 
@@ -237,6 +246,7 @@ def _render_quality_badge(item) -> None:
     quality = assess_required_item(item.item_id, item.text, item.status.value)
     quality_labels = {
         "ok": ("✅ 真實內文", "#059669", "#ecfdf5"),
+        "cross_ref": ("📄 交叉引用", "#0369a1", "#f0f9ff"),
         "toc_stub": ("📑 TOC 索引列", "#b45309", "#fffbeb"),
         "missing": ("❌ 缺失", "#b91c1c", "#fef2f2"),
         "incorporated": ("📎 合併引用", "#4338ca", "#eef2ff"),
@@ -259,25 +269,37 @@ def _render_quality_badge(item) -> None:
             st.caption(f"抽取方式：{label}")
         return
     if item.status == ItemStatus.EXTRACTED and item.text:
-        seg_cls = classify_segment_text(item.text)
-        if seg_cls == SegmentClass.CROSS_REF_ONLY and quality == "ok":
-            st.caption("📄 交叉引用索引（頁碼導向，非完整內文）")
+        if quality == "cross_ref":
+            st.caption("📄 交叉引用索引（頁碼或 K-xx 指標，非完整內文）")
+        else:
+            seg_cls = classify_segment_text(item.text)
+            if seg_cls == SegmentClass.CROSS_REF_ONLY and quality == "ok":
+                st.caption("📄 交叉引用索引（頁碼導向，非完整內文）")
     if item.segment_method:
         label, color = _METHOD_LABELS.get(item.segment_method, (item.segment_method, "#666"))
+        verify_note = (
+            "span 已切分（索引／引用列，非完整正文）"
+            if quality in {"cross_ref", "toc_stub"}
+            else "契約驗證通過"
+        )
         st.markdown(
             f'<span class="tier-badge" style="background:{color}18;color:{color};">'
             f"Tier0 · {label}</span> "
-            f'<span style="font-size:0.82rem;color:#6b7280;">契約驗證通過</span>',
+            f'<span style="font-size:0.82rem;color:#6b7280;">{verify_note}</span>',
             unsafe_allow_html=True,
         )
     elif item.status == ItemStatus.EXTRACTED:
-        st.caption("✓ 契約驗證通過（span integrity + token ratio）")
+        if quality in {"cross_ref", "toc_stub"}:
+            st.caption("span 已切分（索引／引用列，非完整正文）")
+        else:
+            st.caption("✓ 契約驗證通過（span integrity + token ratio）")
 
 
 def _render_item(
     item,
     *,
     cik: str | None = None,
+    expected_missing: list[str] | None = None,
 ) -> None:
     icon = _status_icon(item.status)
     color = _status_color(item.status)
@@ -285,11 +307,15 @@ def _render_item(
     title = f"Item {item.item_id}" + (f" — {name}" if name else "")
 
     if item.status == ItemStatus.EXTRACTED and item.text:
-        is_page_ref = is_page_reference_text(item.text)
+        is_cross_ref = is_cross_reference_index(item.text)
+        is_k1_ref = is_k1_exhibit_reference_index(item.text)
+        is_page_ref = is_page_reference_text(item.text) and not is_k1_ref
         is_toc_stub = is_likely_toc_stub(item.text)
         suffix = ""
-        if is_page_ref or is_toc_stub:
-            suffix = "（交叉引用）" if is_page_ref else "（TOC 索引）"
+        if is_cross_ref or is_toc_stub:
+            suffix = "（K-1 索引）" if is_k1_ref else (
+                "（交叉引用）" if is_cross_ref else "（TOC 索引）"
+            )
         with st.expander(f"{icon} {title}{suffix}", expanded=False):
             col_badge, col_len = st.columns([2, 1])
             with col_badge:
@@ -298,7 +324,13 @@ def _render_item(
                 word_count = len(item.text.split())
                 st.caption(f"📝 {word_count:,} 詞 · {len(item.text):,} 字元")
 
-            if is_page_ref:
+            if is_k1_ref:
+                st.info(
+                    "📄 此項目為 K-1 式內部頁碼引用（如 K-24），"
+                    "主文件僅列章節標題與指標，完整正文見附錄／K-1 包。"
+                    "請使用上方連結開啟 SEC 互動式檢視器查閱。"
+                )
+            elif is_cross_ref or is_page_ref:
                 st.info(
                     "📄 此項目為頁碼交叉引用索引（內容散見於報表其他頁）。"
                     "請使用上方連結開啟官方原文查看完整內容。"
@@ -369,11 +401,25 @@ def _render_item(
                     continue
                 st.caption(f"📋 {w}")
 
-    elif item.status == ItemStatus.MISSING:
+    elif item.status == ItemStatus.NOT_APPLICABLE:
         st.markdown(
-            f'<div style="padding: 0.5rem 1rem; border-left: 4px solid {color}; '
-            f'background: #fef2f2; border-radius: 4px; margin: 0.3rem 0;">'
-            f'{icon} <strong>{title}</strong> — 報表中未找到</div>',
+            f'<div style="padding: 0.5rem 1rem; border-left: 4px solid #9ca3af; '
+            f'background: #f9fafb; border-radius: 4px; margin: 0.3rem 0;">'
+            f'➖ <strong>{title}</strong> — 不適用（如 [Reserved]）</div>',
+            unsafe_allow_html=True,
+        )
+
+    elif item.status == ItemStatus.MISSING:
+        expected = is_expected_missing(item.item_id, expected_missing)
+        icon, suffix, bg, border = missing_item_display(
+            item.item_id,
+            expected=expected,
+            item_name=name,
+        )
+        st.markdown(
+            f'<div style="padding: 0.5rem 1rem; border-left: 4px solid {border}; '
+            f'background: {bg}; border-radius: 4px; margin: 0.3rem 0;">'
+            f'{icon} <strong>{suffix}</strong></div>',
             unsafe_allow_html=True,
         )
     else:
@@ -628,30 +674,65 @@ def _execute_sec_extraction(
 
 
 @st.fragment
-def _sec_summary_fragment(result: FilingExtraction) -> None:
-    extracted = sum(1 for i in result.items if i.status == ItemStatus.EXTRACTED)
-    incorporated = sum(1 for i in result.items if i.status == ItemStatus.INCORPORATED_BY_REFERENCE)
-    missing = sum(1 for i in result.items if i.status == ItemStatus.MISSING)
-    low_conf = sum(1 for i in result.items if i.status == ItemStatus.LOW_CONFIDENCE)
-    total = len(result.items) or 1
-    covered = extracted + incorporated
-    pct = covered / total
+def _sec_summary_fragment(
+    result: FilingExtraction,
+    *,
+    expected_missing: list[str] | None = None,
+) -> None:
+    counts = summarize_item_statuses(result.items, expected_missing=expected_missing)
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("✅ 已抽取", extracted)
-    c2.metric("📎 合併引用", incorporated)
-    c3.metric("⚠️ 低信心", low_conf)
-    c4.metric("❌ 缺失", missing)
-    c5.metric("📊 總計", len(result.items))
+    c1.metric("✅ 已抽取", counts["extracted"])
+    c2.metric("📎 合併引用", counts["incorporated"])
+    c3.metric("⚠️ 低信心", counts["low_confidence"])
+    if counts["missing_unexpected"]:
+        c4.metric("⚠️ 待關注缺失", counts["missing_unexpected"])
+    elif counts["missing_expected"]:
+        c4.metric("○ 預期無章節", counts["missing_expected"])
+    else:
+        c4.metric("○ 無獨立章節", 0)
+    c5.metric("📊 項數", counts["total"])
 
     st.markdown(
         f'<div style="background:#f3f4f6;border-radius:8px;padding:0.55rem 0.85rem;'
         f'margin:0.35rem 0 0.75rem;font-size:0.9rem;color:#374151;">'
-        f"涵蓋率：<strong>{covered}/{total}</strong> 項已解析 "
-        f"(<strong>{pct:.0%}</strong>)</div>",
+        f"{format_coverage_summary(counts)} · "
+        f"上方 <strong>Required KPI</strong> 為 Eval 主指標（非全 16 項）</div>",
         unsafe_allow_html=True,
     )
     _sec_download_fragment()
+
+
+def _render_part_items(
+    items: list,
+    *,
+    cik: str | None,
+    expected_missing: list[str] | None,
+) -> None:
+    """Render non-missing items expanded; collapse missing into one expander."""
+    expected_set = set(expected_missing or [])
+    primary = [i for i in items if i.status != ItemStatus.MISSING]
+    missing = [i for i in items if i.status == ItemStatus.MISSING]
+
+    for item in primary:
+        _render_item(item, cik=cik, expected_missing=expected_missing)
+
+    if not missing:
+        return
+
+    exp_n = sum(1 for i in missing if i.item_id in expected_set)
+    label = f"📋 {len(missing)} 項無獨立正文"
+    if exp_n:
+        label += f"（{exp_n} 項為本格式預期）"
+
+    with st.expander(label, expanded=False):
+        if exp_n:
+            st.caption(
+                "「預期」= 此 filing 格式常無 in-body 章節錨點（見 manifest `expected_missing`）；"
+                "不代表 Required KPI 失敗。"
+            )
+        for item in missing:
+            _render_item(item, cik=cik, expected_missing=expected_missing)
 
 
 def _render_sec_results(result: FilingExtraction, *, source: str = "manifest") -> None:
@@ -660,7 +741,9 @@ def _render_sec_results(result: FilingExtraction, *, source: str = "manifest") -
 
     st.divider()
     filing_meta = _manifest_filing(result.accession)
+    expected_missing: list[str] | None = None
     if filing_meta:
+        expected_missing = filing_meta.get("expected_missing") or None
         expected_source = "manifest" if filing_meta.get("split", "train") == "train" else "heldout"
         if source == expected_source:
             manifest_data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
@@ -681,7 +764,7 @@ def _render_sec_results(result: FilingExtraction, *, source: str = "manifest") -
                 st.error(banner)
             st.caption(
                 f"Gold 邊界為第二層 regression（`{', '.join(manifest_data.get('gold_items', []))}`）；"
-                "上方 **Required** 為 Eval **主 KPI**（非下方 16 項涵蓋率）。"
+                "上方 **Required** 為 Eval **主 KPI**（非下方 16 項列表）。"
             )
 
     html_len = st.session_state.get("sec_html_len", 0)
@@ -704,7 +787,7 @@ def _render_sec_results(result: FilingExtraction, *, source: str = "manifest") -
         unsafe_allow_html=True,
     )
 
-    _sec_summary_fragment(result)
+    _sec_summary_fragment(result, expected_missing=expected_missing)
     st.divider()
 
     by_part: dict[str, list] = {p: [] for p in _PART_ORDER}
@@ -718,8 +801,7 @@ def _render_sec_results(result: FilingExtraction, *, source: str = "manifest") -
         if not items:
             continue
         st.markdown(f"### Part {part}")
-        for item in items:
-            _render_item(item, cik=result.cik)
+        _render_part_items(items, cik=result.cik, expected_missing=expected_missing)
 
 
 def _maybe_render_sec_results(*, source: str, accession: str) -> None:
@@ -758,7 +840,8 @@ with st.expander("⚙️ 抽取選項", expanded=False):
         ),
     )
     st.caption(
-        "預設 **Tier0 only**（與 Eval KPI 一致，無 LLM fallback）。"
+        "預設 **Tier0 only**（與 Eval KPI 一致）。"
+        "可勾選 **Tier2 邊界仲裁**；**Tier1 chunk fallback** 僅 CLI（`--with-llm`）。"
         "HTML 一律即時自 SEC 取得（自訂報表強制略過 eval cache；"
         "manifest 僅在開發者離線 cache 存在時才會讀取，部署環境通常為即時抓取）。"
     )

@@ -476,9 +476,9 @@ with tab_limits:
 | 狀態 | 範例 |
 |------|------|
 | ✅ Train 良好 | MSFT、INTC、Citi（基準集分頁） |
-| ✅ Held-out 通過 | BRK.B、O、NEM、GROW、MSFT FY2020 |
-| ⚠️ Held-out 已知 gap | AAPL 2010 2/4；KSCP 10-K/A 0/4 |
-| ❌ Held-out 預期失敗 | KSCP 10-K/A 0/4 |
+| ✅ Held-out 通過 | JPM、O、NEM、GROW、MSFT FY2020 |
+| ✅ Held-out（cross-ref 誠實） | BRK.B 4/4 required（1A/7 可能為 K-xx 索引，非完整正文） |
+| ⚠️ Held-out 已知 gap | AAPL 2010 2/4；KSCP 10-K/A amendment 0/4 |
 | ⚠️ 困難 | incorporated by reference、iXBRL 複雜 |
 | 🔍 搜尋 | 建議 **ticker**（GOOGL）或 accession；`google` 等單字易 EFTS 雜訊 |
 | 📊 展示 | 結構化文字閱讀視圖；SEC viewer deep link（原文連結） |

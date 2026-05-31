@@ -25,6 +25,12 @@ def test_classify_cross_ref() -> None:
 
 
 @pytest.mark.unit
+def test_classify_brk_k1_cross_ref() -> None:
+    text = "Risk Factors\n\nK-24\nItem 1B.\n"
+    assert classify_segment_text(text) == SegmentClass.CROSS_REF_ONLY
+
+
+@pytest.mark.unit
 def test_classify_real_content() -> None:
     text = "Risk Factors\n" + ("Competition may harm us. " * 40)
     assert classify_segment_text(text) == SegmentClass.REAL_CONTENT
