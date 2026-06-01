@@ -372,6 +372,8 @@ def run_sec_eval(
     use_arbiter: bool = False,
     use_llm_fallback: bool = False,
 ) -> list[FilingEvalResult]:
+    import uuid
+
     manifest = load_manifest(manifest_path)
     required_items = manifest.get("required_items", ["1", "1A", "7", "8"])
     filings = [f for f in manifest["filings"] if f.get("split", "train") == split]
@@ -381,12 +383,14 @@ def run_sec_eval(
             filing["accession"], cache_dir
         ):
             continue
+        run_id = str(uuid.uuid4()) if use_arbiter else None
         results.append(
             evaluate_filing(
                 filing,
                 gold_dir=gold_dir,
                 use_arbiter=use_arbiter,
                 use_llm_fallback=use_llm_fallback,
+                run_id=run_id,
                 required_items=required_items,
             )
         )

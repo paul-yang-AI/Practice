@@ -2,3 +2,8 @@ task,record_id,domain,task_type,split,status,steps,elapsed_s,recovery_count,llm_
 sec_10k,0000950170-24-087843,MSFT,extract,train,ok,,,0,0,0,4,4,22,22,0,0.9545,0.999,0.7971,21,0,0,0,0,0,4,0,0,0.0,False,ok,
 sec_10k,0000050863-25-000009,INTC,extract,train,ok,,,0,0,0,3,3,22,22,0,0.7727,0.9975,0.8612,17,5,0,0,0,0,3,0,0,0.0,False,ok,
 sec_10k,0000831001-25-000067,C,extract,train,ok,,,0,0,0,3,3,14,14,0,0.6429,1.0,0.9962,9,5,8,0,0,0,3,0,3,0.0,False,ok,
+agent,smoke_example_title,example.com,navigate,train,success,2,5.91,0,1,0,,,,,,,,,,,,,,,,,,0.000642,,ok,"The page title is 'Example Domain', which matches the requirement."
+agent,smoke_httpbin_headers,httpbin.org,extract,train,success,2,3.81,0,1,0,,,,,,,,,,,,,,,,,,0.001735,,ok,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+agent,wikipedia_search,wikipedia.org,search,train,success,3,9.07,0,3,0,,,,,,,,,,,,,,,,,,0.006485,,ok,Successfully navigated to the Alan Turing article on Wikipedia.
+agent,github_navigate_repo,github.com,navigate,train,success,3,8.1,0,2,0,,,,,,,,,,,,,,,,,,0.005497,,ok,The repository title 'python/cpython' is visible on the page at https://github.com/python/cpython.
+agent,hacker_news_top,news.ycombinator.com,extract,train,success,2,3.54,0,1,0,,,,,,,,,,,,,,,,,,0.00311,,ok,Cloudflare Turnstile requiring fingerprintable WebGL

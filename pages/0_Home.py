@@ -144,8 +144,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "預設 Eval / UI 走 Tier0-only（$0）；Tier2 仲裁與 Tier1 fallback 皆 opt-in，"
-    "覆蓋率正常時不觸發。"
+    "預設 Eval / UI 走 Tier0-only（$0）；Tier2 仲裁與 Tier1 fallback 皆 opt-in。"
+    "Train KPI 不依賴 Tier2；覆蓋率正常時不觸發。"
 )
 
 st.divider()

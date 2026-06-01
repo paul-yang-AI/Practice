@@ -75,17 +75,54 @@ def _run_benchmark(*, include_agent: bool) -> None:
         write_eval_csv,
     )
 
+    csv_path = _REPORTS / "eval_train.csv"
+    summary_path = _REPORTS / "eval_summary.json"
+    agent_df: pd.DataFrame | None = None
+    prior_summary: dict | None = None
+    if csv_path.exists():
+        try:
+            old_df = pd.read_csv(csv_path)
+            agent_part = old_df[old_df["task"] == "agent"]
+            if not agent_part.empty:
+                agent_df = agent_part
+        except Exception:
+            pass
+    if not include_agent and summary_path.exists():
+        try:
+            prior_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            prior_summary = None
+
     sec_results = run_sec_eval(split="train", use_arbiter=False)
     if include_agent:
         agent_results = run_agent_eval(split="train")
         all_results = [*sec_results, *agent_results]
+        summary = summarize_eval(all_results)
+        write_eval_csv(all_results, csv_path)
     else:
-        all_results = sec_results
-    summary = summarize_eval(all_results)
-    csv_path = _REPORTS / "eval_train.csv"
-    write_eval_csv(all_results, csv_path)
-    write_eval_csv(all_results, _REPORTS / "latest.csv")
-    (_REPORTS / "eval_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        write_eval_csv(sec_results, csv_path)
+        if agent_df is not None:
+            sec_df = pd.read_csv(csv_path)
+            pd.concat([sec_df, agent_df], ignore_index=True).to_csv(csv_path, index=False)
+            summary = summarize_eval(sec_results)
+            if prior_summary:
+                for key in (
+                    "agent_tasks",
+                    "agent_success_rate",
+                    "agent_silent_failures",
+                    "agent_recovery_total",
+                    "agent_llm_calls_total",
+                    "agent_latency_p50",
+                    "agent_latency_p95",
+                    "agent_usd_p50",
+                ):
+                    if key in prior_summary:
+                        summary[key] = prior_summary[key]
+        else:
+            summary = summarize_eval(sec_results)
+
+    pd.read_csv(csv_path).to_csv(_REPORTS / "latest.csv", index=False)
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     st.session_state["eval_summary"] = summary
     st.session_state["eval_df"] = pd.read_csv(csv_path)
 
@@ -192,6 +229,30 @@ def _render_heldout_baseline() -> None:
         )
     if rows:
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    llm_rows = payload.get("with_llm") or []
+    if llm_rows:
+        st.markdown("#### Tier1 LLM fallback（`with_llm`，CLI `--with-llm`）")
+        llm_summary = summary.get("with_llm_ok")
+        llm_n = summary.get("with_llm_filings")
+        if llm_n:
+            st.caption(
+                f"快照：**{llm_summary}/{llm_n}** failure_category=ok "
+                "（整體與 Tier0 相同於當前 baseline；AAPL 2010 仍 2/4 required）。"
+            )
+        llm_table = []
+        for row in llm_rows:
+            cat = row.get("failure_category", "")
+            req = f"{row.get('required_items_found', 0)}/{row.get('required_items_total', 4)}"
+            llm_table.append(
+                {
+                    "Ticker": row.get("ticker", ""),
+                    "Required": req,
+                    "failure_category": cat,
+                    "fallback_used": row.get("fallback_used", False),
+                }
+            )
+        st.dataframe(pd.DataFrame(llm_table), use_container_width=True, hide_index=True)
 
     st.caption(
         "完整變異軸與方法論限制見 README Eval Set 章節與 docs/analysis.md。"
@@ -350,6 +411,7 @@ st.markdown(
 )
 st.caption(
     "**基準評估（Train Split）**：可重現 KPI，供回歸與 submission。"
+    " 存檔 `eval_train.csv` 應含 **3 SEC + 5 agent** 列。"
     " **Held-out 基線**：SEC 泛化驗證（見第二分頁）。"
     " **即時紀錄**：使用者自訂任務，非 benchmark KPI。"
 )
@@ -360,21 +422,21 @@ with col_load:
         "📂 載入存檔結果",
         type="primary",
         use_container_width=True,
-        help="顯示已提交的 submission 基準結果（reports/，不重跑）",
+        help="載入 reports/eval_summary.json + eval_train.csv（預期 3 SEC + 5 agent 列）",
     )
 with col_run_sec:
     run_sec = st.button(
         "📄 重跑 SEC 基準（train）",
         type="secondary",
         use_container_width=True,
-        help="manifest.json train 報表，約 1 分鐘",
+        help="僅更新 SEC 三列；若 CSV 已有 agent 列會保留，並沿用既有 agent KPI 摘要",
     )
 with col_run_agent:
     run_agent = st.button(
         "🤖 重跑完整基準（SEC + Agent）",
         type="secondary",
         use_container_width=True,
-        help="含 Playwright + LLM，約 3–8 分鐘",
+        help="重寫 eval_train.csv（3 SEC + 5 agent）與 eval_summary.json，約 3–8 分鐘",
     )
 
 if load_archived:
@@ -464,8 +526,7 @@ with tab_limits:
 |------|------|
 | ✅ Train 通過 | example.com、httpbin extract、Wikipedia search、HN、GitHub |
 | ✅ Held-out 通過 | httpbin form、python docs、quotes（3/5 基線） |
-| ⚠️ Agent held-out gap | SEC EDGAR max_steps、DDG search max_steps |
-| ⚠️ Held-out / demo | DuckDuckGo search、SEC EDGAR（max_steps）；誠實 gap |
+| ⚠️ Agent held-out gap | SEC EDGAR、DuckDuckGo search（max_steps）；誠實 gap |
 | ⚠️ 不建議 demo | **Google 搜尋**（consent/動態 DOM → type 迴圈；agent 會 stuck 偵測後 fail） |
 | 🚫 不支援 | 登入/CAPTCHA、PDF URL、iframe/shadow DOM、**生成式摘要**（僅抽取頁面文字） |
 | ⚠️ 基礎設施 | Gemini 503 → `plan_failed`（已加 infra 重試） |

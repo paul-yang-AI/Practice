@@ -527,3 +527,15 @@
 - **失敗路徑**：spot_checks 多數為 Check 計畫欄、缺 JPM/KSCP；與 analysis 邊角案例未閉環。
 - **修正**：Scope note；Observation 欄 + BRK/JPM/KSCP/AAPL/MSFT FY2020 結果；O/NEM/GROW baseline 索引表。
 - **驗證**：對齊 `heldout_baseline.json` required / failure_category。
+
+### `[Submission]` `reports_and_doc_sync`（2026-05-31）
+
+- **失敗路徑**：`eval_train.csv` 僅 3 行 SEC（agent 被 `run_eval.py` 覆寫）；`heldout_baseline.json` `with_llm` 空；文件寫 AAPL 2/4→3/4 與快照不符；CLI `--with-arbiter` 無 `run_id`。
+- **修正**：重跑 `run_agent_eval.py`、`run_heldout_baseline.py --with-llm`；`run_sec_eval` 在 `use_arbiter` 時傳 `run_id`；SUBMISSION/README/analysis 對齊 Tier1 vs Tier2、AAPL 仍 2/4。
+- **驗證**：`eval_train.csv` 8 列；`with_llm` 8 筆；`eval_summary.json` agent 5/5。
+
+### `[UI]` `eval_ui_submission_alignment`（2026-05-31）
+
+- **失敗路徑**：Eval「重跑 SEC」覆寫 CSV 導致 Agent 卡片空白；Held-out 頁未展示 `with_llm`。
+- **修正**：`3_Eval.py` SEC-only 重跑保留既有 agent 列與 summary KPI；Held-out 加 `with_llm` 表；按鈕 help / SEC Tier2 預期文案。
+- **驗證**：`test_eval_ui.py` 綠。

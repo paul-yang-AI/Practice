@@ -836,7 +836,8 @@ with st.expander("⚙️ 抽取選項", expanded=False):
         key="sec_use_arbiter",
         help=(
             "預設關閉，與 Eval Tier0 KPI 一致（數秒完成）。"
-            "開啟後，低信心 Item 會逐段呼叫 LLM API，大型 filing 可能需 30–90 秒。"
+            "僅對 low_confidence 段觸發；train 三檔 Tier0 通常無需開啟。"
+            "主要用於自訂 filing 或爭議邊界除錯。大型 filing 可能需 30–90 秒。"
         ),
     )
     st.caption(

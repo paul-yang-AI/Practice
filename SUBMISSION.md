@@ -5,7 +5,7 @@
 1. **SEC 10K → 基準集（Train · 3）** — MSFT extract → Item tree + quality badges  
 2. **SEC 10K → 泛化驗證（Held-out · 8）** — JPM (4/4 bank TOC pass) or AAPL 2010 (expected gap)  
 3. **SEC 10K → 自訂報表** — paste any accession for unseen filing test  
-4. **Eval → 基準評估 Train** — click「載入存檔結果」  
+4. **Eval → 基準評估 Train** — click「載入存檔結果」（`eval_train.csv` 應含 3 SEC + 5 agent 列）  
 5. **Eval → Held-out 基線** — read `heldout_baseline.json` table (6/8 ok)
 
 > Manifest has **11 filings** (3 train + 8 held-out). Train-only dropdown is intentional eval discipline.
@@ -26,10 +26,10 @@
 - [x] `pytest -m unit` — L1 all green
 - [x] `pytest -m integration` — L2 all green
 - [x] `pytest -m eval` — L3 SEC + agent manifest
-- [x] `python scripts/run_eval.py --split train`
-- [x] `python scripts/run_agent_eval.py` → `reports/eval_train.csv` + `eval_summary.json`
+- [x] `python scripts/run_eval.py --split train --tier0-only` — SEC train only (do **not** overwrite `eval_train.csv` after agent eval)
+- [x] `python scripts/run_agent_eval.py` — **last** step for train CSV: SEC + Agent → `reports/eval_train.csv` + `eval_summary.json` (8 rows)
 - [x] `python scripts/run_heldout_baseline.py` → `reports/heldout_baseline.json`
-- [x] `python scripts/run_heldout_baseline.py --with-llm` → `with_llm` section in baseline (6/8 ok; AAPL 3/4 required)
+- [x] `python scripts/run_heldout_baseline.py --with-llm` → `with_llm` in baseline (6/8 ok; AAPL 2010 still 2/4 required on current snapshot)
 - [x] `python scripts/run_agent_heldout_baseline.py` → `reports/agent_heldout_baseline.json`
 - [x] `python scripts/run_heldout_snapshot.py` → `reports/heldout_snapshot.json`
 - [x] `python scripts/demo_circuit_breaker.py` — budget demo
@@ -79,8 +79,9 @@ Port: **8501** (Networking must map to container 8501).
 .venv\Scripts\python.exe -m pytest -m unit
 .venv\Scripts\python.exe -m pytest -m integration
 .venv\Scripts\python.exe -m pytest -m eval
-.venv\Scripts\python.exe scripts/run_eval.py --split train
+.venv\Scripts\python.exe scripts/run_eval.py --split train --tier0-only
 .venv\Scripts\python.exe scripts/run_agent_eval.py
+.venv\Scripts\python.exe scripts/run_heldout_baseline.py --with-llm
 .venv\Scripts\python.exe scripts/run_heldout_baseline.py
 .venv\Scripts\python.exe scripts/run_agent_heldout_baseline.py
 .venv\Scripts\python.exe scripts/cache_heldout_filings.py
@@ -95,4 +96,4 @@ streamlit run streamlit_app.py
 - **SEC held-out (Tier0, 8 cached)**: 6/8 ok; 6/8 strict required pass — see `reports/heldout_baseline.json`
 - **Agent train**: 5/5 success; silent_failure=0
 - **Agent held-out**: **3/5** ok（forms + python_docs + quotes）；SEC/DDG max_steps — **no silent failure**
-- **SEC held-out + LLM**: 6/8 ok; AAPL 2010 required 2/4→3/4 with LLM fallback
+- **SEC held-out + LLM** (`with_llm` in baseline): 6/8 ok; AAPL 2010 **2/4** required (unchanged vs Tier0 on current snapshot)
