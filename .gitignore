@@ -19,6 +19,7 @@ reports/*.csv
 *.egg-info/
 dist/
 build/
-# Local-only interview prep (not for submission repo)
+# Local-only (not for submission repo)
 docs/INTERVIEW.md
+docs/SUBMISSION_EMAIL.md
 reports/private_regression.json
